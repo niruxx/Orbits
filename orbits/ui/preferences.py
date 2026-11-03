@@ -6,6 +6,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from orbits.config import THUMB_CACHE, WALLPAPER_DIR, cache_size, download_dir, settings, trim_cache
 from orbits.library import get_library
 from orbits.fonts import FONT_SOURCES
+from orbits.themes import KINDS
 from orbits.sources import SOURCES
 
 SCHEMES = [("default", "Follow System"), ("light", "Light"), ("dark", "Dark")]
@@ -97,7 +98,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
                         "apply_lockscreen_too"))
         lib.add(_combo("Start Page", "Shown when Orbits opens",
                        [(s.id, s.name) for s in SOURCES] + [("library", "Library")]
-                       + [(s.id, s.name) for s in FONT_SOURCES] + [("my-fonts", "My Fonts"), ("gdm", "Login Screen")],
+                       + [(s.id, s.name) for s in FONT_SOURCES] + [("my-fonts", "My Fonts")]
+                       + [(f"theme-{k.id}", k.title) for k in KINDS.values()] + [("gdm", "Login Screen")],
                        "default_source"))
         page.add(lib)
 

@@ -256,6 +256,8 @@ class Library(GObject.Object):
             "dir": str(dest_dir),
             "files": files,
             "installed_at": time.time(),
+            "download": download.name,
+            "remote_changed": item.updated,
         }
 
     def import_files(self, paths: list[str]):

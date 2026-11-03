@@ -122,3 +122,32 @@ flowbox.font-grid > flowboxchild { padding: 0; background: none; border-radius: 
 }
 .font-detail-display { font-size: 34pt; font-weight: 700; }
 .font-row-sample { font-size: 20pt; min-width: 48px; }
+
+/* ---------- Themes ---------- */
+.theme-card {
+  border-radius: 18px;
+  background-color: @card_bg_color;
+  box-shadow: 0 1px 3px alpha(black, 0.12), 0 0 0 1px alpha(black, 0.03);
+  transition: box-shadow 200ms ease;
+}
+.theme-card:hover { box-shadow: 0 12px 26px -10px alpha(black, 0.35), 0 0 0 2px alpha(@accent_color, 0.7); }
+.theme-preview {
+  border-radius: 18px 18px 0 0;
+  background-image: linear-gradient(135deg, alpha(@accent_bg_color, 0.14), alpha(@card_fg_color, 0.05));
+}
+.theme-preview .badge {
+  margin: 10px; padding: 4px 10px; border-radius: 999px; font-size: 8.5pt; font-weight: 800;
+  background-color: @accent_bg_color; color: @accent_fg_color;
+}
+.theme-swatch { min-width: 34px; min-height: 34px; border-radius: 999px; box-shadow: 0 0 0 2px alpha(white, 0.5), 0 2px 6px alpha(black, 0.25); }
+.cursor-strip picture { min-width: 32px; min-height: 32px; }
+
+.badge-count {
+  min-width: 20px; padding: 1px 6px; border-radius: 999px; font-size: 8.5pt; font-weight: 800;
+  background-color: @accent_bg_color; color: @accent_fg_color;
+}
+
+/* ---------- App Colors ---------- */
+.color-preview-frame { border-radius: 16px; box-shadow: 0 18px 40px -18px alpha(black, 0.55), 0 0 0 1px alpha(black, 0.12); }
+.preset-dot { min-width: 16px; min-height: 16px; border-radius: 999px; box-shadow: 0 0 0 1px alpha(black, 0.2); }
+.preset-chip { border-radius: 14px; }

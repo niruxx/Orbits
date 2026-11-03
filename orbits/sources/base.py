@@ -22,6 +22,7 @@ class Item:
     stats: str = ""
     downloads: list[Download] = field(default_factory=list)
     colors: list[str] = field(default_factory=list)
+    updated: str = ""  # ISO timestamp of the item's last change upstream, when the store reports one
 
     @property
     def key(self):

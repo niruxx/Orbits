@@ -40,6 +40,7 @@ class OrbitsApplication(Adw.Application):
             ("about", self._on_about, []),
             ("preferences", self._on_preferences, ["<primary>comma"]),
             ("welcome", lambda *_: self.window and self.window.show_welcome(), []),
+            ("system-check", self._on_system_check, []),
         ]:
             act = Gio.SimpleAction.new(name, None)
             act.connect("activate", cb)
@@ -79,6 +80,11 @@ class OrbitsApplication(Adw.Application):
                                                   "Fontsource https://fontsource.org",
                                                   "Nerd Fonts https://www.nerdfonts.com"])
         about.present(self.window)
+
+    def _on_system_check(self, *_):
+        from orbits.ui.system_check import SystemCheckDialog
+
+        SystemCheckDialog().present(self.window)
 
     def _on_preferences(self, *_):
         from orbits.ui.preferences import PreferencesDialog

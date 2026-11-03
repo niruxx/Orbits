@@ -38,6 +38,16 @@ PAGES = [
         ],
     },
     {
+        "icon": "applications-graphics-symbolic",
+        "title": "Themes",
+        "body": "Restyle every corner of your desktop — from boot to apps.",
+        "features": [
+            ("applications-graphics-symbolic", "GTK & Shell", "App themes, libadwaita too, and GNOME Shell themes"),
+            ("view-app-grid-symbolic", "Icons & Cursors", "Previewed with real icons and pointers before you apply"),
+            ("system-reboot-symbolic", "Boot Splash", "Plymouth animations, with the initramfs rebuilt for you"),
+        ],
+    },
+    {
         "icon": "system-lock-screen-symbolic",
         "title": "Login Screen",
         "body": "Customize GDM like never before — with a live preview.",

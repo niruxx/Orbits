@@ -215,6 +215,7 @@ class NerdFontsSource(FontSource):
                 subtitle=f"Nerd Fonts {rel.get('tag_name', '')} · {a['size'] / 1048576:.1f} MB",
                 license="MIT / OFL", page_url="https://www.nerdfonts.com/font-downloads",
                 download=a["browser_download_url"],
+                extra={"modified": rel.get("published_at", ""), "version": rel.get("tag_name", "")},
             ))
         return out
 
@@ -362,7 +363,8 @@ class FontLibrary(GObject.Object):
             return {"key": item.key, "source": item.source, "id": item.id, "family": item.family,
                     "families": families_in(files) or [item.family], "slug": slug, "dir": str(dest),
                     "files": files, "scope": "user", "license": item.license, "page_url": item.page_url,
-                    "category": item.category, "installed_at": time.time()}
+                    "category": item.category, "installed_at": time.time(),
+                    "remote_changed": item.extra.get("modified", "")}
 
         def done(entry, err):
             self.busy.pop(item.key, None)

@@ -68,10 +68,16 @@ class OrbitsWindow(Adw.ApplicationWindow):
         self.sidebar.set_header_func(self._sidebar_header)
         self._rows = []
         entries = [("explore", s.id, s.name, s.icon) for s in SOURCES]
-        entries += [("collection", "library", "Library", "folder-pictures-symbolic")]
+        entries += [("collection", "looks", "Looks", "preferences-desktop-appearance-symbolic"),
+                    ("collection", "library", "Library", "folder-pictures-symbolic"),
+                    ("collection", "updates", "Updates", "software-update-available-symbolic")]
         entries += [("fonts", s.id, s.name, s.icon) for s in FONT_SOURCES]
-        entries += [("fonts", "my-fonts", "My Fonts", "preferences-desktop-font-symbolic"),
-                    ("system", "gdm", "Login Screen", "system-lock-screen-symbolic")]
+        entries += [("fonts", "my-fonts", "My Fonts", "preferences-desktop-font-symbolic")]
+        from orbits.themes import KINDS
+
+        entries += [("themes", f"theme-{k.id}", k.title, k.icon) for k in KINDS.values()]
+        entries += [("themes", "app-colors", "App Colors", "preferences-color-symbolic")]
+        entries += [("system", "gdm", "Login Screen", "system-lock-screen-symbolic")]
         font_sources = {s.id: s for s in FONT_SOURCES}
         for section, pid, title, icon in entries:
             row = Gtk.ListBoxRow()
@@ -84,6 +90,9 @@ class OrbitsWindow(Adw.ApplicationWindow):
             elif pid == "my-fonts":
                 self.fonts_count = Gtk.Label(css_classes=["dim-label", "caption"])
                 box.append(self.fonts_count)
+            elif pid == "updates":
+                self.updates_count = Gtk.Label(css_classes=["badge-count"], visible=False)
+                box.append(self.updates_count)
             row.set_child(box)
             row.page_id, row.section = pid, section
             self.sidebar.append(row)
@@ -95,8 +104,24 @@ class OrbitsWindow(Adw.ApplicationWindow):
                 page = GdmPage(self)
             elif pid == "my-fonts":
                 page = FontsPage(self)
+            elif pid == "updates":
+                from orbits.ui.updates_page import UpdatesPage
+
+                page = UpdatesPage(self)
             elif pid in font_sources:
                 page = FontBrowsePage(self, font_sources[pid])
+            elif pid == "looks":
+                from orbits.ui.looks_page import LooksPage
+
+                page = LooksPage(self)
+            elif pid == "app-colors":
+                from orbits.ui.colors_page import ColorsPage
+
+                page = ColorsPage(self)
+            elif pid.startswith("theme-"):
+                from orbits.ui.themes_page import ThemesPage
+
+                page = ThemesPage(self, pid.removeprefix("theme-"))
             else:
                 page = BrowsePage(self, next(s for s in SOURCES if s.id == pid))
             self.pages[pid] = page
@@ -107,6 +132,7 @@ class OrbitsWindow(Adw.ApplicationWindow):
         sb_header = Adw.HeaderBar()
         menu = Gio.Menu()
         menu.append("Preferences", "app.preferences")
+        menu.append("System Check", "app.system-check")
         menu.append("Welcome Tour", "app.welcome")
         menu.append("About Orbits", "app.about")
         sb_header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, tooltip_text="Main Menu"))
@@ -131,13 +157,24 @@ class OrbitsWindow(Adw.ApplicationWindow):
 
         get_library().connect("changed", lambda *_: self._update_count())
         get_font_library().connect("changed", lambda *_: self._update_count())
+        from orbits.updates import get_checker
+
+        checker = get_checker()
+        checker.connect("changed", lambda *_: self._update_count())
+        checker.check_if_due(self._updates_found)
         self._update_count()
         self._main_built = True
         self.navigate(settings.get("default_source") or SOURCES[0].id)
 
+    def _updates_found(self, updates):
+        if updates:
+            self.toast(f"{len(updates)} update{'s' if len(updates) != 1 else ''} available", button="View",
+                       action=lambda: self.navigate("updates"))
+
     def _sidebar_header(self, row, before):
         if before is None or before.section != row.section:
-            names = {"explore": "WALLPAPERS", "collection": "COLLECTION", "fonts": "FONTS", "system": "SYSTEM"}
+            names = {"explore": "WALLPAPERS", "collection": "COLLECTION", "fonts": "FONTS", "themes": "THEMES",
+                     "system": "SYSTEM"}
             row.set_header(Gtk.Label(label=names[row.section], xalign=0, css_classes=["sidebar-heading"]))
         else:
             row.set_header(None)
@@ -151,6 +188,11 @@ class OrbitsWindow(Adw.ApplicationWindow):
         self.library_count.set_label(str(n) if n else "")
         f = len(get_font_library().items)
         self.fonts_count.set_label(str(f) if f else "")
+        from orbits.updates import get_checker
+
+        u = len(get_checker().updates)
+        self.updates_count.set_label(str(u))
+        self.updates_count.set_visible(u > 0)
 
     def _on_row(self, _lb, row):
         self.navigate(row.page_id)

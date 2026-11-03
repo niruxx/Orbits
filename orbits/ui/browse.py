@@ -8,11 +8,20 @@ from orbits.ui.widgets import WallCard, make_grid, status_page
 
 
 class BrowsePage(Adw.Bin):
-    def __init__(self, window, source):
+    def __init__(self, window, source, lib=None, apply_label="Set as Wallpaper",
+                 apply_icon="preferences-desktop-wallpaper-symbolic", on_apply=None, describe=None,
+                 title_widget=None, wallpaper_extras=True):
+        """lib/on_apply/describe let other item types (themes) reuse this page.
+
+        on_apply(entry) applies an installed entry; describe(entry) returns the "Installed …" toast text.
+        """
         super().__init__()
         self.window, self.source = window, source
         self.title = source.name
-        self.lib = get_library()
+        self.lib = lib or get_library()
+        self.apply_label, self.apply_icon = apply_label, apply_icon
+        self._on_apply, self._describe = on_apply, describe
+        self.wallpaper_extras = wallpaper_extras
         self.page = 1
         self.has_more = True
         self.loading = False
@@ -23,7 +32,8 @@ class BrowsePage(Adw.Bin):
         self.category = source.categories[0][0] if source.categories else ""
         self._loaded_once = False
 
-        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title=source.name, subtitle=source.tagline))
+        header = Adw.HeaderBar(title_widget=title_widget or Adw.WindowTitle(title=source.name,
+                                                                            subtitle=source.tagline))
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Refresh")
         refresh.connect("clicked", lambda *_: self.reload())
         header.pack_end(refresh)
@@ -157,8 +167,7 @@ class BrowsePage(Adw.Bin):
         card.item = item
         card.install_btn = card.add_action_button("folder-download-symbolic", "Install",
                                                   lambda: self.install(item))
-        card.add_action_button("preferences-desktop-wallpaper-symbolic", "Set as Wallpaper",
-                               lambda: self.install(item, apply=True))
+        card.add_action_button(self.apply_icon, self.apply_label, lambda: self.install(item, apply=True))
         card.load(url=item.thumb_url or item.preview_url)
         self.cards[item.key] = card
         self.grid.append(card)
@@ -191,18 +200,24 @@ class BrowsePage(Adw.Bin):
             if err:
                 self.window.toast(f"Install failed: {err}", timeout=5)
             else:
-                n = len(entry["files"])
                 if apply:
                     self._apply(entry)
                 else:
-                    self.window.toast(f"Installed “{item.title}”" + (f" · {n} wallpapers" if n > 1 else ""),
-                                      button="Set as Wallpaper", action=lambda: self._apply(entry))
+                    if self._describe:
+                        text = self._describe(entry)
+                    else:
+                        n = len(entry["files"])
+                        text = f"Installed “{item.title}”" + (f" · {n} wallpapers" if n > 1 else "")
+                    self.window.toast(text, button=self.apply_label, action=lambda: self._apply(entry))
             if on_done:
                 on_done(entry, err)
 
         self.lib.install(item, download, done, progress)
 
     def _apply(self, entry):
+        if self._on_apply:
+            self._on_apply(entry)
+            return
         self.lib.apply(entry["files"][0], desktop=True, lockscreen=settings.get("apply_lockscreen_too"))
         self.window.toast(f"Wallpaper set to “{entry['title']}”")
 

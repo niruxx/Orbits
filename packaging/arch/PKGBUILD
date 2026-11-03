@@ -1,16 +1,18 @@
 # Maintainer: niruxx
 # Builds from the local source tree:  cd packaging/arch && makepkg -si
 pkgname=orbits
-pkgver=0.1.0
+pkgver=0.3.0
 pkgrel=1
-pkgdesc="GTK4 wallpaper & font manager with a full GDM login screen customizer"
+pkgdesc="GTK4 manager for wallpapers, fonts, themes, app colors, desktop Looks and the GDM login screen"
 arch=('any')
 url="https://github.com/niruxx/Orbits"
 license=('GPL-3.0-or-later')
 depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'glib2' 'gdk-pixbuf2' 'pango'
          'fontconfig' 'polkit' 'dconf' 'gsettings-desktop-schemas')
 optdepends=('gdm: login screen customization'
-            'gnome-shell: login and lock screen theming')
+            'gnome-shell: login and lock screen theming'
+            'gnome-shell-extensions: User Themes extension for Shell themes'
+            'plymouth: boot splash themes')
 install=orbits.install
 
 _srcroot="$(realpath "${startdir}/../..")"
@@ -21,9 +23,14 @@ pkgver() {
 }
 
 build() {
-  rm -rf "${srcdir}/orbits"
-  cp -r "${_srcroot}/orbits" "${srcdir}/orbits"
-  find "${srcdir}/orbits" -name '__pycache__' -prune -exec rm -rf {} +
+  rm -rf "${srcdir}/orbits" "${srcdir}/tests"
+  cp -r "${_srcroot}/orbits" "${_srcroot}/tests" "${srcdir}/"
+  find "${srcdir}" -name '__pycache__' -prune -exec rm -rf {} +
+}
+
+check() {
+  cd "${srcdir}"
+  sh tests/run.sh
 }
 
 package() {

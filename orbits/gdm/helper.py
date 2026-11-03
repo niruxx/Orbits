@@ -5,6 +5,9 @@ usage: helper.py apply <spec.json>
        helper.py reset
        helper.py font-install <dir> <slug>
        helper.py font-remove <slug>
+       helper.py theme-install <themes|icons|plymouth> <dir> <name>
+       helper.py theme-remove <themes|icons|plymouth> <name>
+       helper.py plymouth-set <name>
 
 The spec is produced by orbits.gdm.model.build_spec().  Everything the helper writes is tagged so a
 reset returns the system to exactly what it was before Orbits touched it.
@@ -26,7 +29,19 @@ BACKUP = GRESOURCE + ".orbits-backup"
 PREFIX = "/org/gnome/shell/theme"
 MARKER = PREFIX + "/orbits.marker"
 BG_NAME = "orbits-background.jpg"
-THEMED_CSS = re.compile(r"^gnome-shell(-[a-z-]+)?\.css$")
+THEMED_CSS = re.compile(r"^(gnome-shell|gdm3?)(-[a-z-]+)?\.css$")
+
+# Debian/Ubuntu let distributions pick GDM's theme with update-alternatives instead of replacing
+# gnome-shell-theme.gresource (Ubuntu ships Yaru this way). There we register our own alternative
+# rather than overwriting a file owned by a package.
+ALTERNATIVES = [
+    (os.path.join(SHELL_DIR, "gdm-theme.gresource"), "gdm-theme.gresource"),     # Ubuntu 20.04+
+    (os.path.join(SHELL_DIR, "gdm3-theme.gresource"), "gdm3-theme.gresource"),   # Ubuntu 18.04–19.10
+]
+ALT_CMD = "update-alternatives"
+OUR_DIR = os.path.join(SHELL_DIR, "orbits")
+OUR_GRES = os.path.join(OUR_DIR, "gdm-theme.gresource")
+ALT_BASE_FILE = os.path.join(OUR_DIR, "base")
 
 DCONF_PROFILE = "/etc/dconf/profile/gdm"
 DCONF_DB_DIR = "/etc/dconf/db/gdm.d"
@@ -72,6 +87,32 @@ def read_user_file(path, max_bytes=64 << 20):
             os.close(fd)
 
 
+def selinux_enabled():
+    return os.path.isdir("/sys/fs/selinux") and bool(shutil.which("restorecon"))
+
+
+def relabel(path):
+    """Give files we write the SELinux label their location expects (Fedora/RHEL), so gdm may read them."""
+    if selinux_enabled() and os.path.lexists(path):
+        subprocess.run(["restorecon", "-RF", path], check=False, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+
+
+def read_only(path):
+    """True if path sits on a read-only mount (Silverblue, NixOS, SteamOS…)."""
+    p = path
+    while not os.path.exists(p):
+        p = os.path.dirname(p)
+    return bool(os.statvfs(p).f_flag & os.ST_RDONLY)
+
+
+def require_writable(*paths):
+    for p in paths:
+        if read_only(p):
+            raise PermissionError(f"{p} is on a read-only filesystem (immutable system); "
+                                  "Orbits can't make system-wide changes here")
+
+
 def atomic_write(path, data: bytes, mode=0o644):
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
@@ -81,6 +122,7 @@ def atomic_write(path, data: bytes, mode=0o644):
             f.write(data)
         os.chmod(tmp, mode)
         os.replace(tmp, path)
+        relabel(path)
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -105,21 +147,30 @@ def walk(res, path):
             yield path + child
 
 
-def apply_theme(css, background):
-    if not os.path.exists(GRESOURCE):
-        raise FileNotFoundError(f"{GRESOURCE} not found — is GNOME Shell installed?")
-    if not is_ours(GRESOURCE):
-        # Current file is pristine (or came from a package update / another tool): it becomes the base.
-        shutil.copy2(GRESOURCE, BACKUP)
-        log("backed up original shell theme")
-    elif not os.path.exists(BACKUP):
-        raise RuntimeError("Theme was modified by Orbits but the backup is missing; reinstall gnome-shell")
+def theme_location():
+    """("alternatives", link, name) where GDM's theme is an update-alternatives link, else ("file", path, None)."""
+    if shutil.which(ALT_CMD):
+        for link, name in ALTERNATIVES:
+            if os.path.lexists(link):
+                return "alternatives", link, name
+    return "file", GRESOURCE, None
 
-    base = Gio.Resource.load(BACKUP)
+
+def active_theme_file():
+    """The gresource GDM will actually load."""
+    _mode, path, _name = theme_location()
+    return os.path.realpath(path)
+
+
+def build_gresource(base_path, css, background, out_path):
+    """Copy every resource from base_path, append css to the shell/GDM stylesheets, add our files."""
+    base = Gio.Resource.load(base_path)
     with tempfile.TemporaryDirectory(prefix="orbits-theme-") as tmp:
         names = []
         for rpath in walk(base, PREFIX + "/"):
             rel = rpath[len(PREFIX) + 1:]
+            if rel == "orbits.marker" or rel == BG_NAME:
+                continue
             data = base.lookup_data(rpath, Gio.ResourceLookupFlags.NONE).get_data()
             if THEMED_CSS.match(os.path.basename(rel)) and css:
                 data = data + b"\n\n/* ---- Orbits ---- */\n" + css.encode()
@@ -133,7 +184,7 @@ def apply_theme(css, background):
                 f.write(read_user_file(background))
             names.append(BG_NAME)
         with open(os.path.join(tmp, "orbits.marker"), "w") as f:
-            f.write("Modified by Orbits. Original saved as gnome-shell-theme.gresource.orbits-backup\n")
+            f.write(f"Modified by Orbits. Built from {base_path}\n")
         names.append("orbits.marker")
 
         xml = ['<?xml version="1.0" encoding="UTF-8"?>', "<gresources>", f'  <gresource prefix="{PREFIX}">']
@@ -146,11 +197,81 @@ def apply_theme(css, background):
         subprocess.run(["glib-compile-resources", f"--sourcedir={tmp}", f"--target={target}", xml_path],
                        check=True)
         with open(target, "rb") as f:
-            atomic_write(GRESOURCE, f.read())
+            atomic_write(out_path, f.read())
+
+
+def apply_theme(css, background):
+    mode, path, name = theme_location()
+    if mode == "alternatives":
+        _apply_alternative(path, name, css, background)
+        return
+    if not os.path.exists(GRESOURCE):
+        raise FileNotFoundError(f"{GRESOURCE} not found — is GNOME Shell installed?")
+    if not is_ours(GRESOURCE):
+        # Current file is pristine (or came from a package update / another tool): it becomes the base.
+        shutil.copy2(GRESOURCE, BACKUP)
+        log("backed up original shell theme")
+    elif not os.path.exists(BACKUP):
+        raise RuntimeError("Theme was modified by Orbits but the backup is missing; reinstall gnome-shell")
+    build_gresource(BACKUP, css, background, GRESOURCE)
     log("installed custom shell theme")
 
 
+def _alt(*args):
+    subprocess.run([ALT_CMD, *args], check=True, stdout=subprocess.DEVNULL)
+
+
+def _alternative_base(link, name):
+    """The distribution theme our alternative is built on (whatever was selected before Orbits)."""
+    current = os.path.realpath(link)
+    if current != os.path.realpath(OUR_GRES) and os.path.exists(current):
+        os.makedirs(OUR_DIR, exist_ok=True)
+        atomic_write(ALT_BASE_FILE, current.encode())
+        return current
+    try:
+        with open(ALT_BASE_FILE) as f:
+            base = f.read().strip()
+        if os.path.exists(base):
+            return base
+    except FileNotFoundError:
+        pass
+    out = subprocess.run([ALT_CMD, "--list", name], capture_output=True, text=True).stdout.split()
+    for cand in out:
+        if os.path.realpath(cand) != os.path.realpath(OUR_GRES) and os.path.exists(cand):
+            atomic_write(ALT_BASE_FILE, cand.encode())
+            return cand
+    raise RuntimeError(f"no original {name} alternative found to build on")
+
+
+def _apply_alternative(link, name, css, background):
+    base = _alternative_base(link, name)
+    os.makedirs(OUR_DIR, exist_ok=True)
+    build_gresource(base, css, background, OUR_GRES)
+    # Priority 0 so "auto" mode never picks us on its own; --set selects us explicitly.
+    _alt("--install", link, name, OUR_GRES, "0")
+    _alt("--set", name, OUR_GRES)
+    log(f"selected Orbits theme as the {name} alternative (based on {base})")
+
+
 def restore_theme():
+    mode, path, name = theme_location()
+    if mode == "alternatives":
+        if os.path.exists(OUR_GRES):
+            base = None
+            try:
+                with open(ALT_BASE_FILE) as f:
+                    base = f.read().strip()
+            except FileNotFoundError:
+                pass
+            if os.path.realpath(path) == os.path.realpath(OUR_GRES):
+                if base and os.path.exists(base):
+                    _alt("--set", name, base)
+                else:
+                    _alt("--auto", name)
+            _alt("--remove", name, OUR_GRES)
+            log(f"restored the original {name} alternative")
+        shutil.rmtree(OUR_DIR, ignore_errors=True)
+        return
     if is_ours(GRESOURCE) and os.path.exists(BACKUP):
         with open(BACKUP, "rb") as f:
             atomic_write(GRESOURCE, f.read())
@@ -293,6 +414,7 @@ def cmd_font_install(src_dir, slug):
     for n in names:
         atomic_write(os.path.join(dest, n), read_user_file(os.path.join(src_dir, n), 256 << 20))
     os.chmod(SYSTEM_FONTS, 0o755)
+    relabel(dest)
     subprocess.run(["fc-cache", "-f", SYSTEM_FONTS], check=False)
     log(f"installed {len(names)} files to {dest}")
 
@@ -305,6 +427,129 @@ def cmd_font_remove(slug):
         shutil.rmtree(dest)
         subprocess.run(["fc-cache", "-f"], check=False)
         log(f"removed {dest}")
+
+
+# ---------------------------------------------------------------- themes
+THEME_BASES = {"themes": "/usr/share/themes", "icons": "/usr/share/icons", "plymouth": "/usr/share/plymouth/themes"}
+THEME_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+ ()-]{0,100}$")
+THEME_MARKER = ".orbits.json"
+MAX_THEME_BYTES = 2 << 30
+
+
+def _theme_dest(base_key, name):
+    if base_key not in THEME_BASES:
+        raise ValueError(f"unknown theme location {base_key!r}")
+    if not THEME_NAME_RE.match(name):
+        raise ValueError(f"bad theme name {name!r}")
+    return os.path.join(THEME_BASES[base_key], name)
+
+
+def _check_tree(src):
+    """Every file must belong to the invoking user; symlinks must stay inside the tree."""
+    uid, root, total = invoking_uid(), os.path.realpath(src), 0
+    st = os.lstat(src)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid:
+        raise PermissionError(f"{src} must be a folder you own")
+    for dirpath, dirnames, filenames in os.walk(src):
+        for n in dirnames + filenames:
+            p = os.path.join(dirpath, n)
+            st = os.lstat(p)
+            if stat.S_ISLNK(st.st_mode):
+                target = os.path.realpath(p)
+                if not (target == root or target.startswith(root + os.sep)):
+                    raise PermissionError(f"symlink {p} points outside the theme")
+            elif stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode):
+                if st.st_uid != uid:
+                    raise PermissionError(f"{p} must be owned by you")
+                total += st.st_size
+                if total > MAX_THEME_BYTES:
+                    raise ValueError("theme is too large")
+            else:
+                raise PermissionError(f"{p} is not a regular file")
+
+
+def cmd_theme_install(base_key, src, name):
+    dest = _theme_dest(base_key, name)
+    if os.path.exists(dest) and not os.path.exists(os.path.join(dest, THEME_MARKER)):
+        raise FileExistsError(f"{dest} exists and wasn't installed by Orbits")
+    _check_tree(src)
+    parent = os.path.dirname(dest)
+    os.makedirs(parent, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix=".orbits-", dir=parent)
+    try:
+        staged = os.path.join(tmp, "theme")
+        shutil.copytree(src, staged, symlinks=True)
+        for dirpath, dirnames, filenames in os.walk(staged):
+            os.chown(dirpath, 0, 0)
+            os.chmod(dirpath, 0o755)
+            for n in filenames:
+                p = os.path.join(dirpath, n)
+                if not os.path.islink(p):
+                    os.chown(p, 0, 0)
+                    os.chmod(p, 0o644)
+            for n in dirnames:
+                p = os.path.join(dirpath, n)
+                if os.path.islink(p):
+                    os.lchown(p, 0, 0)
+        marker = os.path.join(staged, THEME_MARKER)
+        if not os.path.exists(marker):
+            with open(marker, "w") as f:
+                json.dump({"installed_by": "orbits"}, f)
+        if os.path.exists(dest):
+            shutil.rmtree(dest)
+        os.rename(staged, dest)
+        relabel(dest)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if base_key == "icons" and shutil.which("gtk-update-icon-cache") and os.path.exists(
+            os.path.join(dest, "index.theme")):
+        subprocess.run(["gtk-update-icon-cache", "-q", "-f", "-t", dest], check=False)
+    log(f"installed {dest}")
+
+
+def plymouth_default():
+    try:
+        out = subprocess.run(["plymouth-set-default-theme"], capture_output=True, text=True).stdout.strip()
+        return out
+    except OSError:
+        return ""
+
+
+def cmd_theme_remove(base_key, name):
+    dest = _theme_dest(base_key, name)
+    if not os.path.isdir(dest):
+        return
+    if not os.path.exists(os.path.join(dest, THEME_MARKER)):
+        raise PermissionError(f"{name} wasn't installed by Orbits; remove it with your package manager")
+    if base_key == "plymouth" and plymouth_default() == name:
+        raise RuntimeError(f"{name} is the active boot splash; choose another one first")
+    shutil.rmtree(dest)
+    log(f"removed {dest}")
+
+
+def rebuild_initramfs():
+    if shutil.which("mkinitcpio"):
+        cmd = ["mkinitcpio", "-P"]
+    elif shutil.which("dracut"):
+        cmd = ["dracut", "--force", "--regenerate-all"]
+    elif shutil.which("update-initramfs"):
+        cmd = ["update-initramfs", "-u", "-k", "all"]
+    else:
+        raise RuntimeError("no initramfs tool found (mkinitcpio, dracut or update-initramfs)")
+    log("rebuilding initramfs: " + " ".join(cmd))
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        raise RuntimeError("initramfs rebuild failed: " + " / ".join(tail))
+
+
+def cmd_plymouth_set(name):
+    dest = _theme_dest("plymouth", name)
+    if not os.path.isdir(dest) or not any(f.endswith(".plymouth") for f in os.listdir(dest)):
+        raise FileNotFoundError(f"boot splash {name!r} is not installed")
+    subprocess.run(["plymouth-set-default-theme", name], check=True)
+    rebuild_initramfs()
+    log(f"boot splash set to {name}")
 
 
 # ---------------------------------------------------------------- entry points
@@ -351,6 +596,14 @@ def main(argv):
         print("This helper must run as root (via pkexec).", file=sys.stderr)
         return 2
     try:
+        if len(argv) >= 2 and argv[1] in ("apply", "reset"):
+            require_writable(SHELL_DIR, "/etc")
+        elif len(argv) >= 2 and argv[1].startswith("font-"):
+            require_writable(SYSTEM_FONTS)
+        elif len(argv) >= 3 and argv[1].startswith("theme-"):
+            require_writable(THEME_BASES.get(argv[2], "/usr/share"))
+        elif len(argv) >= 2 and argv[1] == "plymouth-set":
+            require_writable(THEME_BASES["plymouth"], "/boot")
         if len(argv) == 3 and argv[1] == "apply":
             cmd_apply(argv[2])
         elif len(argv) == 2 and argv[1] == "reset":
@@ -359,6 +612,12 @@ def main(argv):
             cmd_font_install(argv[2], argv[3])
         elif len(argv) == 3 and argv[1] == "font-remove":
             cmd_font_remove(argv[2])
+        elif len(argv) == 5 and argv[1] == "theme-install":
+            cmd_theme_install(argv[2], argv[3], argv[4])
+        elif len(argv) == 4 and argv[1] == "theme-remove":
+            cmd_theme_remove(argv[2], argv[3])
+        elif len(argv) == 3 and argv[1] == "plymouth-set":
+            cmd_plymouth_set(argv[2])
         else:
             print(__doc__, file=sys.stderr)
             return 2

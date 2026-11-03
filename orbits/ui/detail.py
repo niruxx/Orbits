@@ -99,6 +99,10 @@ class DetailDialog(Adw.Dialog):
         if self.lib.is_installed(key):
             entry = self.lib.items[key]
             self._btn("Uninstall", ["destructive-action"], lambda: self.lib.uninstall(key), "user-trash-symbolic")
+            if not self.page.wallpaper_extras:
+                self._btn(self.page.apply_label, ["suggested-action"], lambda: self.page._apply(entry),
+                          self.page.apply_icon)
+                return
             menu = Gtk.MenuButton(icon_name="view-more-symbolic", css_classes=["circular"], valign=Gtk.Align.CENTER,
                                   tooltip_text="More")
             pop = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -116,8 +120,8 @@ class DetailDialog(Adw.Dialog):
                       "preferences-desktop-wallpaper-symbolic")
         else:
             self._btn("Install", [], lambda: self._install(None), "folder-download-symbolic")
-            self._btn("Set as Wallpaper", ["suggested-action"], lambda: self.page.install(self.item, apply=True),
-                      "preferences-desktop-wallpaper-symbolic")
+            self._btn(self.page.apply_label, ["suggested-action"], lambda: self.page.install(self.item, apply=True),
+                      self.page.apply_icon)
 
     def _install(self, download):
         if self.lib.is_installed(self.item.key):

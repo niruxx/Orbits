@@ -453,6 +453,14 @@ class GdmPage(Adw.Bin):
 
         dlg.open(self.window, None, done)
 
+    def load_values(self, values):
+        """Load settings from a Look into the editor (the user still presses Apply)."""
+        for k, v in values.items():
+            if k in gm.THEME_DEFAULTS or self.model.dkey(k) is not None:
+                self.model.set(k, v)
+        self._sync_rows()
+        self._changed()
+
     def set_background_image(self, path):
         self.model.set("bg_image", path)
         self.model.set("bg_mode", "image")
@@ -536,6 +544,9 @@ class GdmPage(Adw.Bin):
         if not os.path.exists(gm.HELPER) or not shutil.which("pkexec"):
             self.banner.set_title("pkexec is not available — changes can't be applied")
             self.banner.set_revealed(True)
+        elif __import__("orbits.system", fromlist=["usr_read_only"]).usr_read_only():
+            self.banner.set_title("This system's /usr is read-only, so the login screen can't be changed")
+            self.banner.set_revealed(True)
         elif not (shutil.which("gdm") or os.path.exists("/usr/sbin/gdm3") or os.path.exists("/usr/sbin/gdm")):
             self.banner.set_title("GDM doesn't appear to be installed on this system")
             self.banner.set_revealed(True)
@@ -546,11 +557,11 @@ class GdmPage(Adw.Bin):
 
     @staticmethod
     def _theme_is_ours():
+        from orbits.gdm import helper
+
         try:
-            res = Gio.Resource.load("/usr/share/gnome-shell/gnome-shell-theme.gresource")
-            res.lookup_data("/org/gnome/shell/theme/orbits.marker", Gio.ResourceLookupFlags.NONE)
-            return True
-        except GLib.Error:
+            return helper.is_ours(helper.active_theme_file())
+        except (OSError, GLib.Error):
             return False
 
     # ================================================================ apply
