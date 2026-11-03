@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a1b5e"/>
+      <stop offset="0.55" stop-color="#4b2a8f"/>
+      <stop offset="1" stop-color="#d1477a"/>
+    </linearGradient>
+    <radialGradient id="planet" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#ffe6a8"/>
+      <stop offset="0.45" stop-color="#ffab5e"/>
+      <stop offset="1" stop-color="#e2456b"/>
+    </radialGradient>
+    <radialGradient id="moon" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#9fd6ff"/>
+    </radialGradient>
+    <clipPath id="frame"><rect x="8" y="12" width="112" height="104" rx="22"/></clipPath>
+  </defs>
+  <rect x="8" y="14" width="112" height="104" rx="22" fill="#170f33" opacity="0.35"/>
+  <rect x="8" y="10" width="112" height="104" rx="22" fill="url(#bg)"/>
+  <g clip-path="url(#frame)" transform="translate(0,-2)">
+    <circle cx="26" cy="30" r="1.4" fill="#fff" opacity="0.8"/>
+    <circle cx="98" cy="26" r="1.1" fill="#fff" opacity="0.7"/>
+    <circle cx="104" cy="86" r="1.3" fill="#fff" opacity="0.6"/>
+    <circle cx="22" cy="92" r="1" fill="#fff" opacity="0.6"/>
+    <circle cx="80" cy="18" r="0.9" fill="#fff" opacity="0.6"/>
+    <path d="M8 100 Q40 82 64 92 T120 86 V130 H8Z" fill="#1b1240" opacity="0.55"/>
+  </g>
+  <ellipse cx="64" cy="62" rx="46" ry="16" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="3" transform="rotate(-18 64 62)"/>
+  <circle cx="64" cy="62" r="22" fill="url(#planet)"/>
+  <path d="M19.6 74.2 A46 16 -18 0 0 108.4 49.8" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" transform="rotate(0 64 62)" opacity="0.95"/>
+  <circle cx="104" cy="47" r="6.5" fill="url(#moon)"/>
+</svg>

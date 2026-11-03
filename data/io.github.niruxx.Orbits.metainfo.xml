@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.niruxx.Orbits</id>
+  <name>Orbits</name>
+  <summary>Discover wallpapers and fonts, and customize your login screen</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.niruxx"><name>niruxx</name></developer>
+  <description>
+    <p>Browse and install wallpapers from the KDE Store, Wallhaven and Bing, manage fonts from Google Fonts
+      and Nerd Fonts, and fully customize the GDM login screen with a live preview.</p>
+  </description>
+  <launchable type="desktop-id">io.github.niruxx.Orbits.desktop</launchable>
+  <url type="homepage">https://github.com/niruxx/Orbits</url>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="0.1.0" date="2026-11-03"/></releases>
+</component>

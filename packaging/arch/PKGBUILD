@@ -1,0 +1,52 @@
+# Maintainer: niruxx
+# Builds from the local source tree:  cd packaging/arch && makepkg -si
+pkgname=orbits
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="GTK4 wallpaper & font manager with a full GDM login screen customizer"
+arch=('any')
+url="https://github.com/niruxx/Orbits"
+license=('GPL-3.0-or-later')
+depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'glib2' 'gdk-pixbuf2' 'pango'
+         'fontconfig' 'polkit' 'dconf' 'gsettings-desktop-schemas')
+optdepends=('gdm: login screen customization'
+            'gnome-shell: login and lock screen theming')
+install=orbits.install
+
+_srcroot="$(realpath "${startdir}/../..")"
+
+pkgver() {
+  python -c "import ast,sys; t=open(sys.argv[1]).read(); print([n.value.value for n in ast.parse(t).body if isinstance(n, ast.Assign) and n.targets[0].id == 'VERSION'][0])" \
+    "${_srcroot}/orbits/__init__.py"
+}
+
+build() {
+  rm -rf "${srcdir}/orbits"
+  cp -r "${_srcroot}/orbits" "${srcdir}/orbits"
+  find "${srcdir}/orbits" -name '__pycache__' -prune -exec rm -rf {} +
+}
+
+package() {
+  local id=io.github.niruxx.Orbits
+  install -dm755 "${pkgdir}/usr/lib/orbits"
+  cp -r "${srcdir}/orbits" "${pkgdir}/usr/lib/orbits/"
+  find "${pkgdir}/usr/lib/orbits" -type f -exec chmod 644 {} +
+  chmod 755 "${pkgdir}/usr/lib/orbits/orbits/gdm/helper.py"
+  python -m compileall -q -o 0 -o 1 -d /usr/lib/orbits "${pkgdir}/usr/lib/orbits"
+
+  install -Dm755 /dev/stdin "${pkgdir}/usr/bin/orbits" <<'LAUNCHER'
+#!/usr/bin/python3 -P
+import sys
+sys.path.insert(0, "/usr/lib/orbits")
+from orbits.application import main
+sys.exit(main())
+LAUNCHER
+
+  sed "s|@EXEC@|orbits|" "${_srcroot}/data/${id}.desktop.in" > "${srcdir}/${id}.desktop"
+  install -Dm644 "${srcdir}/${id}.desktop" "${pkgdir}/usr/share/applications/${id}.desktop"
+  install -Dm644 "${_srcroot}/data/icons/hicolor/scalable/apps/${id}.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${id}.svg"
+  install -Dm644 "${_srcroot}/data/${id}.policy" "${pkgdir}/usr/share/polkit-1/actions/${id}.policy"
+  install -Dm644 "${_srcroot}/data/${id}.metainfo.xml" "${pkgdir}/usr/share/metainfo/${id}.metainfo.xml"
+  install -Dm644 "${_srcroot}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}

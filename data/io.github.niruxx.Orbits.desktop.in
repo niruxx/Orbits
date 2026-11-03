@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Orbits
+GenericName=Wallpaper, Font & Login Screen Manager
+Comment=Discover wallpapers and fonts, and customize your login screen
+Exec=@EXEC@
+Icon=io.github.niruxx.Orbits
+Terminal=false
+Categories=GTK;GNOME;Settings;DesktopSettings;
+Keywords=wallpaper;background;fonts;gdm;login;lock screen;kde;wallhaven;bing;google fonts;nerd fonts;
+StartupNotify=true
+DBusActivatable=false

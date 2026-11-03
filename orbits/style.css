@@ -1,0 +1,124 @@
+/* ---------- Welcome ---------- */
+.welcome {
+  background-image: linear-gradient(160deg, alpha(@accent_bg_color, 0.30), transparent 55%),
+                    linear-gradient(340deg, alpha(#d1477a, 0.22), transparent 60%);
+}
+.welcome-icon-circle {
+  border-radius: 999px;
+  min-width: 128px;
+  min-height: 128px;
+  background-image: linear-gradient(135deg, alpha(@accent_bg_color, 0.85), alpha(#d1477a, 0.85));
+  color: white;
+  box-shadow: 0 18px 40px -12px alpha(@accent_bg_color, 0.6);
+}
+.welcome-title { font-size: 34pt; font-weight: 900; letter-spacing: -0.5px; }
+.welcome-body { font-size: 13pt; opacity: 0.8; }
+.welcome-feature {
+  border-radius: 16px;
+  padding: 14px 18px;
+  background-color: alpha(@card_bg_color, 0.65);
+  box-shadow: 0 1px 3px alpha(black, 0.12);
+}
+.welcome-feature image { color: @accent_color; }
+.welcome-app-icon { -gtk-icon-shadow: 0 16px 34px alpha(black, 0.35); }
+.welcome-next { padding: 10px 34px; font-weight: 800; }
+
+/* ---------- Wallpaper cards ---------- */
+flowbox.wall-grid > flowboxchild { padding: 0; border-radius: 18px; background: none; }
+flowbox.wall-grid > flowboxchild:focus-visible { outline: 3px solid alpha(@accent_color, 0.6); outline-offset: 2px; }
+.wall-card {
+  border-radius: 18px;
+  background-color: alpha(@card_fg_color, 0.06);
+  box-shadow: 0 2px 6px alpha(black, 0.10), 0 0 0 1px alpha(black, 0.04);
+  transition: box-shadow 200ms ease;
+}
+.wall-card:hover { box-shadow: 0 14px 30px -8px alpha(black, 0.35), 0 0 0 2px alpha(@accent_color, 0.7); }
+.wall-card .caption {
+  padding: 34px 14px 12px 14px;
+  background-image: linear-gradient(to top, alpha(black, 0.78), alpha(black, 0.0));
+  color: white;
+}
+.wall-card .caption .title { font-weight: 800; }
+.wall-card .caption .subtitle { font-size: 9pt; opacity: 0.8; }
+.wall-card .badge {
+  margin: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 8.5pt;
+  font-weight: 800;
+  background-color: alpha(black, 0.55);
+  color: white;
+}
+.wall-card .badge.accent { background-color: @accent_bg_color; color: @accent_fg_color; }
+.wall-card .quick-actions { margin: 10px; }
+.wall-card .quick-actions button {
+  background-color: alpha(black, 0.55);
+  color: white;
+  min-width: 34px; min-height: 34px;
+}
+.wall-card .quick-actions button:hover { background-color: alpha(black, 0.75); }
+.wall-card progressbar trough, .wall-card progressbar progress { min-height: 4px; }
+
+.chip-row button.chip {
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-weight: 600;
+}
+.chip-row button.chip:checked { background-color: @accent_bg_color; color: @accent_fg_color; }
+
+/* ---------- Detail dialog ---------- */
+.detail-hero { border-radius: 20px; background-color: alpha(@card_fg_color, 0.06); }
+.detail-title { font-size: 20pt; font-weight: 900; }
+.swatch { min-width: 22px; min-height: 22px; border-radius: 999px; box-shadow: 0 0 0 1px alpha(black, 0.15); }
+
+/* ---------- Sidebar ---------- */
+.sidebar-heading { font-size: 8.5pt; font-weight: 800; opacity: 0.55; margin: 14px 12px 4px 12px; }
+
+/* ---------- GDM preview ---------- */
+.gdm-preview-frame {
+  border-radius: 22px;
+  box-shadow: 0 24px 48px -18px alpha(black, 0.55), 0 0 0 1px alpha(black, 0.08);
+}
+.gdm-preview { color: #f6f5f4; }
+.gdm-preview .topbar { padding: 4px 10px; font-size: 8pt; font-weight: 700; }
+.gdm-preview .topbar.panel-bg { background-color: alpha(black, 0.0); }
+.gdm-preview .avatar-circle {
+  border-radius: 999px; min-width: 56px; min-height: 56px;
+  background-image: linear-gradient(135deg, #8ff0a4, #3584e4);
+  color: white; font-weight: 900; font-size: 18pt;
+}
+.gdm-preview .user-name { font-weight: 800; font-size: 11pt; }
+.gdm-preview .fake-entry {
+  border-radius: 999px;
+  min-width: 190px; min-height: 30px;
+  background-color: alpha(white, 0.12);
+  font-size: 9pt;
+  padding: 0 14px;
+}
+.gdm-preview .fake-entry-label { opacity: 0.6; }
+.gdm-preview .banner { font-size: 8.5pt; opacity: 0.9; }
+.gdm-preview .lock-clock-date { font-size: 12pt; font-weight: 500; }
+.gdm-preview .lock-hint { font-size: 8.5pt; opacity: 0.75; }
+.gdm-preview .pill-hint {
+  border-radius: 999px; padding: 4px 12px; background-color: alpha(black, 0.4); font-size: 8pt;
+}
+.apply-bar { padding: 10px 16px; border-top: 1px solid alpha(@borders, 0.5); background-color: @headerbar_bg_color; }
+
+/* ---------- Fonts ---------- */
+flowbox.font-grid > flowboxchild { padding: 0; background: none; border-radius: 18px; }
+.font-card {
+  padding: 18px 20px 16px 20px;
+  border-radius: 18px;
+  background-color: @card_bg_color;
+  box-shadow: 0 1px 3px alpha(black, 0.12), 0 0 0 1px alpha(black, 0.03);
+  transition: box-shadow 200ms ease;
+}
+.font-card:hover { box-shadow: 0 12px 26px -10px alpha(black, 0.35), 0 0 0 2px alpha(@accent_color, 0.7); }
+.font-card-glyphs { font-size: 30pt; font-weight: 600; }
+.font-card-sample { font-size: 13pt; opacity: 0.85; min-height: 44px; }
+.font-badge {
+  padding: 3px 10px; border-radius: 999px; font-size: 8.5pt; font-weight: 800;
+  background-color: @accent_bg_color; color: @accent_fg_color;
+}
+.font-detail-display { font-size: 34pt; font-weight: 700; }
+.font-row-sample { font-size: 20pt; min-width: 48px; }

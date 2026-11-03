@@ -1,0 +1,23 @@
+post_install() {
+  echo ":: Run 'orbits' or find Orbits in your app grid."
+}
+
+pre_remove() {
+  theme=/usr/share/gnome-shell/gnome-shell-theme.gresource
+  if [ -f "$theme.orbits-backup" ] && python3 -c "
+import sys
+from gi.repository import Gio
+Gio.Resource.load(sys.argv[1]).lookup_data('/org/gnome/shell/theme/orbits.marker', 0)" "$theme" 2>/dev/null; then
+    cp -f "$theme.orbits-backup" "$theme"
+    echo ":: Restored the original GNOME Shell login theme."
+  fi
+  rm -f "$theme.orbits-backup"
+  if [ -f /etc/dconf/db/gdm.d/99-orbits ]; then
+    rm -f /etc/dconf/db/gdm.d/99-orbits
+    dconf update 2>/dev/null || true
+    echo ":: Removed Orbits login screen settings."
+  fi
+  rm -f /usr/share/orbits/gdm-logo.*
+  rmdir /usr/share/orbits 2>/dev/null || true
+  echo ":: System-wide fonts in /usr/share/fonts/orbits were kept; delete that folder to remove them."
+}
