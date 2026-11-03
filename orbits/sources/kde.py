@@ -16,6 +16,7 @@ def _clean(text):
 
 
 class OcsSource(Source):
+    """Any Pling-network store (store.kde.org, gnome-look.org, …) speaking the OCS v1 API."""
 
     api = API
     store_name = "KDE Store"
