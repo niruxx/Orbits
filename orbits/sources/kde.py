@@ -42,6 +42,19 @@ class OcsSource(Source):
         return items, page * self.page_size < total
 
 
+    def fetch_details(self, item_id):
+        from urllib.parse import quote
+        from orbits.ocs_details import details
+        return details(get_json(f"{self.api}/{quote(str(item_id), safe='')}", {"format":"json"}))
+
+    def fetch_comments(self, item_id, page=0):
+        from urllib.parse import quote
+        from orbits.ocs_details import comments
+        base = self.api.rsplit("/content/data", 1)[0]
+        result = get_json(f"{base}/comments/data/1/{quote(str(item_id), safe='')}/0",
+                          {"format":"json", "page":page, "pagesize":10})
+        return comments(result)
+
     def _parse(self, d):
         downloads = []
         for n in range(1, 50):
@@ -50,7 +63,8 @@ class OcsSource(Source):
                 break
             if url:
                 downloads.append(Download(d.get(f"downloadname{n}") or f"file {n}", url,
-                                          int(d.get(f"downloadsize{n}") or 0) * 1024))
+                                          int(d.get(f"downloadsize{n}") or 0) * 1024,
+                                          str(d.get(f"downloadmd5sum{n}") or "").strip()))
         return Item(
             source=self.id,
             id=str(d["id"]),

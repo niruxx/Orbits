@@ -3,19 +3,31 @@
 
 usage: helper.py apply <spec.json>
        helper.py reset
+       helper.py reapply             # root package hook / systemd only
+       helper.py updates-disable
+       helper.py undo <identifier>
        helper.py font-install <dir> <slug>
        helper.py font-remove <slug>
        helper.py theme-install <themes|icons|plymouth> <dir> <name>
        helper.py theme-remove <themes|icons|plymouth> <name>
        helper.py plymouth-set <name>
+       helper.py plymouth-preview <name> <local-display> <xauthority-file>
+       helper.py boot-list
+       helper.py boot-theme-install <grub|refind> <dir> <name>
+       helper.py boot-theme-apply <grub|refind> <name>
+       helper.py boot-theme-remove <grub|refind> <name>
+       helper.py boot-theme-reset <grub|refind>
 
 The spec is produced by orbits.gdm.model.build_spec().  Everything the helper writes is tagged so a
 reset returns the system to exactly what it was before Orbits touched it.
 """
 import json
+import hashlib
+import glob
 import os
 import re
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -169,20 +181,39 @@ def build_gresource(base_path, css, background, out_path):
         names = []
         for rpath in walk(base, PREFIX + "/"):
             rel = rpath[len(PREFIX) + 1:]
-            if rel == "orbits.marker" or rel == BG_NAME:
+            if rel == "orbits.marker" or rel in (BG_NAME, "orbits-background-light.jpg", "orbits-background-dark.jpg"):
                 continue
             data = base.lookup_data(rpath, Gio.ResourceLookupFlags.NONE).get_data()
             if THEMED_CSS.match(os.path.basename(rel)) and css:
-                data = data + b"\n\n/* ---- Orbits ---- */\n" + css.encode()
+                variant = "light" if "-light" in os.path.basename(rel) else "dark"
+                extra = css.get(variant, "") if isinstance(css, dict) else css
+                data = data + b"\n\n/* ---- Orbits ---- */\n" + extra.encode()
             out = os.path.join(tmp, rel)
             os.makedirs(os.path.dirname(out), exist_ok=True)
             with open(out, "wb") as f:
                 f.write(data)
             names.append(rel)
+        if isinstance(css, dict):
+            resource_names = set(names)
+            for rel in list(names):
+                if os.path.basename(rel) not in ("gnome-shell.css", "gdm.css", "gdm3.css"):
+                    continue
+                original = base.lookup_data(PREFIX + "/" + rel, Gio.ResourceLookupFlags.NONE).get_data()
+                for variant in ("light", "dark"):
+                    variant_name = rel[:-4] + f"-{variant}.css"
+                    if variant_name not in resource_names:
+                        with open(os.path.join(tmp, variant_name), "wb") as f:
+                            f.write(original + b"\n\n/* ---- Orbits ---- */\n" + css.get(variant, "").encode())
+                        names.append(variant_name)
         if background:
-            with open(os.path.join(tmp, BG_NAME), "wb") as f:
-                f.write(read_user_file(background))
-            names.append(BG_NAME)
+            images = background if isinstance(background, dict) else {"default": background}
+            for variant, source in images.items():
+                if variant not in ("default", "light", "dark"):
+                    raise ValueError("Invalid background variant")
+                filename = BG_NAME if variant == "default" else f"orbits-background-{variant}.jpg"
+                with open(os.path.join(tmp, filename), "wb") as f:
+                    f.write(read_user_file(source))
+                names.append(filename)
         with open(os.path.join(tmp, "orbits.marker"), "w") as f:
             f.write(f"Modified by Orbits. Built from {base_path}\n")
         names.append("orbits.marker")
@@ -430,7 +461,8 @@ def cmd_font_remove(slug):
 
 
 # ---------------------------------------------------------------- themes
-THEME_BASES = {"themes": "/usr/share/themes", "icons": "/usr/share/icons", "plymouth": "/usr/share/plymouth/themes"}
+THEME_BASES = {"themes": "/usr/share/themes", "icons": "/usr/share/icons", "plymouth": "/usr/share/plymouth/themes",
+               "sounds": "/usr/share/sounds", "terminal": "/usr/share/orbits/terminal-themes"}
 THEME_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+ ()-]{0,100}$")
 THEME_MARKER = ".orbits.json"
 MAX_THEME_BYTES = 2 << 30
@@ -552,10 +584,623 @@ def cmd_plymouth_set(name):
     log(f"boot splash set to {name}")
 
 
+
+# Preview runner is constant code, executed only inside the private namespaces below.
+PLYMOUTH_PREVIEW_SCRIPT = r"""
+import subprocess
+import sys
+import time
+
+with open('/run/preview.log', 'w+') as output:
+    daemon = subprocess.Popen([sys.argv[1], '--no-daemon', '--no-boot-log', '--debug',
+        '--pid-file=/run/plymouth/preview.pid',
+        '--kernel-command-line=splash plymouth.ignore-serial-consoles plymouth.ignore-udev'],
+        stdout=output, stderr=output)
+    try:
+        for _ in range(50):
+            if daemon.poll() is not None:
+                raise RuntimeError('The preview daemon exited before opening its X11 window')
+            probe = subprocess.run([sys.argv[2], '--ping'], stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=1)
+            if probe.returncode == 0:
+                break
+            time.sleep(.1)
+        else:
+            raise RuntimeError('The preview daemon did not start')
+        subprocess.run([sys.argv[2], 'show-splash'], check=True, timeout=3)
+        time.sleep(.3)
+        output.flush()
+        output.seek(0)
+        renderer_log = output.read()
+        if not any('opened renderer plugin' in line and 'x11.so' in line for line in renderer_log.splitlines()):
+            raise RuntimeError('Plymouth could not open its X11 renderer')
+        try:
+            daemon.wait(timeout=10)
+            raise RuntimeError('The preview daemon exited early')
+        except subprocess.TimeoutExpired:
+            pass
+    except Exception as error:
+        output.flush()
+        output.seek(0)
+        print(str(error) + ': ' + output.read()[-2500:], file=sys.stderr)
+        sys.exit(1)
+    finally:
+        try:
+            subprocess.run([sys.argv[2], 'quit'], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if daemon.poll() is None:
+            daemon.terminate()
+            try:
+                daemon.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                daemon.kill()
+                daemon.wait()
+"""
+
+
+def plymouth_preview_command(name, display, authority_copy, conf_dir):
+    # Both the filesystem socket and abstract socket namespace are isolated from the boot daemon.
+    if not re.fullmatch(r":[0-9]+(?:\.[0-9]+)?", display):
+        raise ValueError("Preview requires a local X11/XWayland display")
+    bwrap = shutil.which("bwrap")
+    daemon = shutil.which("plymouthd")
+    client = shutil.which("plymouth")
+    if not all((bwrap, daemon, client)):
+        raise RuntimeError("Preview requires bubblewrap, plymouthd and plymouth")
+    renderers = [path for pattern in ("/usr/lib/plymouth/renderers/x11.so", "/usr/lib64/plymouth/renderers/x11.so",
+                 "/usr/lib/*/plymouth/renderers/x11.so") for path in glob.glob(pattern)]
+    if not renderers:
+        raise RuntimeError("Plymouth's X11 renderer is missing; install plymouth-x11 (or your distribution's equivalent)")
+    number = display[1:].split(".")[0]
+    socket = "/tmp/.X11-unix/X" + number
+    if not os.path.exists(socket):
+        raise RuntimeError("The local X11 display socket was not found")
+    return [bwrap, "--die-with-parent", "--unshare-pid", "--unshare-net", "--unshare-ipc", "--unshare-uts",
+            "--cap-drop", "ALL", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+            "--tmpfs", "/sys", "--tmpfs", "/run", "--dir", "/run/plymouth", "--tmpfs", "/tmp",
+            "--dir", "/tmp/.X11-unix", "--ro-bind", socket, socket,
+            "--ro-bind", conf_dir, "/etc/plymouth", "--ro-bind", authority_copy, "/run/preview.auth",
+            "--clearenv", "--setenv", "PATH", "/usr/sbin:/usr/bin:/sbin:/bin",
+            "--setenv", "DISPLAY", display, "--setenv", "XAUTHORITY", "/run/preview.auth",
+            "--setenv", "GDK_BACKEND", "x11", "--setenv", "HOME", "/run",
+            sys.executable, "-I", "-c", PLYMOUTH_PREVIEW_SCRIPT, daemon, client]
+
+
+def cmd_plymouth_preview(name, display, authority):
+    dest = _theme_dest("plymouth", name)
+    if not os.path.isfile(os.path.join(dest, name + ".plymouth")):
+        raise FileNotFoundError(f"The installed theme needs {name}.plymouth for Plymouth to load it")
+    auth = read_user_file(authority, max_bytes=1 << 20)
+    with tempfile.TemporaryDirectory(prefix="orbits-plymouth-preview-") as folder:
+        conf = os.path.join(folder, "config")
+        os.mkdir(conf)
+        with open(os.path.join(conf, "plymouthd.conf"), "w") as stream:
+            stream.write(f"[Daemon]\nTheme={name}\nShowDelay=0\nDeviceTimeout=0\n")
+        authority_copy = os.path.join(folder, "auth")
+        with open(authority_copy, "wb") as stream:
+            stream.write(auth)
+        os.chmod(authority_copy, 0o600)
+        command = plymouth_preview_command(name, display, authority_copy, conf)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("The isolated Plymouth preview timed out") from error
+        if result.returncode:
+            raise RuntimeError("Plymouth preview failed: " + (result.stderr.strip()[-3000:] or "X11 renderer could not start"))
+    log("Plymouth preview finished without changing boot settings")
+
+
+# ---------------------------------------------------------------- bootloader themes
+GRUB_DIRS = ["/boot/grub", "/boot/grub2"]
+GRUB_DEFAULT = "/etc/default/grub"
+ESP_CANDIDATES = ["/boot", "/efi", "/boot/efi"]
+REFIND_SUBDIRS = ["EFI/refind", "EFI/BOOT", "EFI/Boot"]
+REFIND_BEGIN = "# >>> Orbits theme (managed by Orbits — change it in the app)"
+REFIND_END = "# <<< Orbits theme"
+BOOT_MARKER = ".orbits.json"
+
+
+def grub_dir():
+    for d in GRUB_DIRS:
+        if os.path.isdir(d) and (os.path.exists(os.path.join(d, "grub.cfg")) or os.path.isdir(os.path.join(d, "themes"))
+                                 or os.path.isdir(os.path.join(d, "fonts"))):
+            return d
+    return None
+
+
+def refind_dir():
+    for esp in ESP_CANDIDATES:
+        for sub in REFIND_SUBDIRS:
+            d = os.path.join(esp, sub)
+            if os.path.isfile(os.path.join(d, "refind.conf")):
+                return d
+    return None
+
+
+def _themes_root(loader):
+    if loader == "grub":
+        d = grub_dir()
+        if not d:
+            raise FileNotFoundError("GRUB doesn't appear to be installed (no /boot/grub or /boot/grub2)")
+        return os.path.join(d, "themes")
+    if loader == "refind":
+        d = refind_dir()
+        if not d:
+            raise FileNotFoundError("rEFInd's refind.conf wasn't found on the EFI system partition")
+        return os.path.join(d, "themes")
+    raise ValueError(f"unsupported bootloader {loader!r}")
+
+
+def _theme_file(loader):
+    return "theme.txt" if loader == "grub" else "theme.conf"
+
+
+def _grub_default_lines():
+    try:
+        with open(GRUB_DEFAULT) as f:
+            return f.read().splitlines()
+    except FileNotFoundError:
+        return []
+
+
+def grub_current_theme():
+    current = ""
+    for line in _grub_default_lines():
+        m = re.match(r'^\s*(?:export\s+)?GRUB_THEME\s*=\s*(.*)$', line)
+        if m:
+            try:
+                values = shlex.split(m.group(1), comments=True)
+                current = values[0] if values else ""
+            except ValueError:
+                continue
+    return current
+
+
+def refind_current_theme():
+    d = refind_dir()
+    if not d:
+        return ""
+    current = ""
+    with open(os.path.join(d, "refind.conf"), errors="replace") as f:
+        for line in f:
+            try:
+                tokens = shlex.split(line, comments=True)
+            except ValueError:
+                continue
+            if len(tokens) == 2 and tokens[0].lower() == "include" and tokens[1].startswith("themes/"):
+                current = tokens[1].split("/")[1]  # the last include wins in rEFInd
+    return current
+
+
+def cmd_boot_list():
+    out = {}
+    for loader in ("grub", "refind"):
+        try:
+            root = _themes_root(loader)
+        except (FileNotFoundError, ValueError):
+            continue
+        themes = []
+        if os.path.isdir(root):
+            for name in sorted(os.listdir(root)):
+                d = os.path.join(root, name)
+                if os.path.isfile(os.path.join(d, _theme_file(loader))):
+                    marker = os.path.join(d, BOOT_MARKER)
+                    metadata = {}
+                    try:
+                        descriptor = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW)
+                        with os.fdopen(descriptor) as stream:
+                            record = json.loads(stream.read(65536))
+                        if isinstance(record, dict):
+                            metadata = {key: record[key] for key in ("key", "page", "title")
+                                        if isinstance(record.get(key), str)}
+                    except (OSError, ValueError):
+                        pass
+                    themes.append({"name": name, "managed": os.path.exists(marker), "metadata": metadata})
+        if loader == "grub":
+            cur = grub_current_theme()
+            current = os.path.basename(os.path.dirname(cur)) if cur else ""
+        else:
+            current = refind_current_theme()
+        out[loader] = {"themes_dir": root, "themes": themes, "current": current}
+    print(json.dumps(out), flush=True)
+
+
+def _copy_plain(src, dest):
+    """Copy a theme tree without symlinks or ownership (the ESP is usually FAT32)."""
+    shutil.copytree(src, dest, symlinks=False, copy_function=shutil.copyfile)
+
+
+def cmd_boot_theme_install(loader, src, name):
+    root = _themes_root(loader)
+    dest = _theme_dest_in(root, name)
+    if not os.path.isfile(os.path.join(src, _theme_file(loader))):
+        raise ValueError(f"{src} has no {_theme_file(loader)}")
+    if os.path.exists(dest) and not os.path.exists(os.path.join(dest, BOOT_MARKER)):
+        raise FileExistsError(f"{dest} exists and wasn't installed by Orbits")
+    _check_tree(src)
+    os.makedirs(root, exist_ok=True)
+    staging = tempfile.mkdtemp(prefix=".orbits-", dir=root)
+    tmp = os.path.join(staging, "theme")
+    try:
+        _copy_plain(src, tmp)
+        if not os.path.exists(os.path.join(tmp, BOOT_MARKER)):
+            with open(os.path.join(tmp, BOOT_MARKER), "w") as f:
+                json.dump({"installed_by": "orbits"}, f)
+        if os.path.exists(dest):
+            shutil.rmtree(dest)
+        os.rename(tmp, dest)
+        relabel(dest)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    log(f"installed {dest}")
+
+
+def _theme_dest_in(root, name):
+    if not THEME_NAME_RE.match(name):
+        raise ValueError(f"bad theme name {name!r}")
+    dest = os.path.join(root, name)
+    if os.path.islink(root) or os.path.islink(dest):
+        raise PermissionError("boot theme destinations must not be symbolic links")
+    return dest
+
+
+def _backup_once(path):
+    backup = path + ".orbits-backup"
+    if os.path.exists(path) and not os.path.exists(backup):
+        shutil.copy2(path, backup)
+        log(f"backed up {path}")
+
+
+def _set_grub_theme(value):
+    """Set (or with None, undo) GRUB_THEME in /etc/default/grub. Only active lines are touched."""
+    lines = _grub_default_lines()
+    if not lines and not os.path.exists(GRUB_DEFAULT):
+        raise FileNotFoundError(f"{GRUB_DEFAULT} not found")
+    _backup_once(GRUB_DEFAULT)
+    disabled = "# Orbits: disabled so the graphical theme can show — "
+    active_theme = re.compile(r"^\s*(?:export\s+)?GRUB_THEME\s*=")
+    out, placed = [], False
+    for line in lines:
+        if active_theme.match(line):
+            if value is not None and not placed:
+                out.append(f'GRUB_THEME="{value}"')
+                placed = True
+            continue  # drop other / previous active theme lines
+        if value is not None and re.match(r'^\s*GRUB_TERMINAL_OUTPUT\s*=\s*"?console"?', line):
+            out.append(disabled + line.strip())
+            continue
+        if value is None and line.startswith(disabled):
+            out.append(line[len(disabled):])
+            continue
+        out.append(line)
+    if value is not None and not placed:
+        out.append(f'GRUB_THEME="{value}"')
+    if value is None:
+        try:  # bring back the theme the user had before Orbits, if any
+            with open(GRUB_DEFAULT + ".orbits-backup") as f:
+                out += [ln for ln in f.read().splitlines() if active_theme.match(ln)]
+        except FileNotFoundError:
+            pass
+    atomic_write(GRUB_DEFAULT, ("\n".join(out) + "\n").encode())
+
+
+def _change_grub_theme(value):
+    # Keep the settings and generated menu consistent when generation fails.
+    with open(GRUB_DEFAULT, "rb") as f:
+        previous = f.read()
+    cfg = os.path.join(grub_dir(), "grub.cfg")
+    old_cfg = None
+    if os.path.isfile(cfg):
+        with open(cfg, "rb") as f:
+            old_cfg = f.read()
+    try:
+        _set_grub_theme(value)
+        grub_mkconfig()
+    except Exception:
+        atomic_write(GRUB_DEFAULT, previous)
+        if old_cfg is not None:
+            atomic_write(cfg, old_cfg)
+        elif os.path.exists(cfg):
+            os.unlink(cfg)
+        raise
+
+
+def grub_mkconfig():
+    d = grub_dir()
+    if shutil.which("update-grub"):
+        cmd = ["update-grub"]
+    elif shutil.which("grub-mkconfig"):
+        cmd = ["grub-mkconfig", "-o", os.path.join(d, "grub.cfg")]
+    elif shutil.which("grub2-mkconfig"):
+        cmd = ["grub2-mkconfig", "-o", os.path.join(d, "grub.cfg")]
+    else:
+        raise RuntimeError("no grub-mkconfig / grub2-mkconfig / update-grub found")
+    log("regenerating GRUB config: " + " ".join(cmd))
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        raise RuntimeError("GRUB config regeneration failed: " + " / ".join(tail))
+
+
+def _set_refind_include(name):
+    """Replace (or with None, remove) Orbits' managed include block at the end of refind.conf."""
+    conf = os.path.join(refind_dir(), "refind.conf")
+    _backup_once(conf)
+    with open(conf, errors="replace") as f:
+        lines = f.read().splitlines()
+    out, skipping = [], False
+    for line in lines:
+        if line.strip() == REFIND_BEGIN:
+            skipping = True
+            continue
+        if skipping:
+            if line.strip() == REFIND_END:
+                skipping = False
+            continue
+        out.append(line)
+    while out and not out[-1].strip():
+        out.pop()
+    if name is not None:
+        out += ["", REFIND_BEGIN, f'include "themes/{name}/theme.conf"', REFIND_END]
+    with open(conf, "w") as f:  # FAT32: no atomic rename guarantees across files, write in place
+        f.write("\n".join(out) + "\n")
+    log(f"updated {conf}")
+
+
+def cmd_boot_theme_apply(loader, name):
+    root = _themes_root(loader)
+    dest = _theme_dest_in(root, name)
+    if not os.path.isfile(os.path.join(dest, _theme_file(loader))):
+        raise FileNotFoundError(f"{name} isn't installed for {loader}")
+    if loader == "grub":
+        _change_grub_theme(os.path.join(dest, "theme.txt"))
+    else:
+        _set_refind_include(name)
+    log(f"{loader} theme set to {name}")
+
+
+def cmd_boot_theme_reset(loader):
+    if loader == "grub":
+        _change_grub_theme(None)
+    elif loader == "refind":
+        _set_refind_include(None)
+    else:
+        raise ValueError(loader)
+    log(f"{loader} theme reset")
+
+
+def cmd_boot_theme_remove(loader, name):
+    root = _themes_root(loader)
+    dest = _theme_dest_in(root, name)
+    if not os.path.isdir(dest):
+        return
+    if not os.path.exists(os.path.join(dest, BOOT_MARKER)):
+        raise PermissionError(f"{name} wasn't installed by Orbits")
+    current = refind_current_theme() if loader == "refind" else os.path.basename(
+        os.path.dirname(grub_current_theme() or "/x/"))
+    if current == name:
+        cmd_boot_theme_reset(loader)
+    shutil.rmtree(dest)
+    log(f"removed {dest}")
+
+
+# ---------------------------------------------------------------- update persistence
+UPDATE_STATE = "/var/lib/orbits/gdm"
+UPDATE_RUNNER = "/usr/local/libexec/orbits-gdm-update"
+PACMAN_HOOK = "/etc/pacman.d/hooks/95-orbits-gdm.hook"
+APT_HOOK = "/etc/apt/apt.conf.d/99orbits-gdm"
+UPDATE_SERVICE = "/etc/systemd/system/orbits-gdm-reapply.service"
+UPDATE_PATH = "/etc/systemd/system/orbits-gdm-reapply.path"
+
+
+def disable_updates():
+    if os.path.exists(UPDATE_PATH) and shutil.which("systemctl"):
+        subprocess.run(["systemctl", "disable", "--now", "orbits-gdm-reapply.path"], check=True)
+    for path in (PACMAN_HOOK, APT_HOOK, UPDATE_SERVICE, UPDATE_PATH, UPDATE_RUNNER):
+        if os.path.exists(path):
+            os.unlink(path)
+    shutil.rmtree(UPDATE_STATE, ignore_errors=True)
+    if shutil.which("systemctl") and os.path.isdir("/run/systemd/system"):
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
+
+
+def save_update_theme(theme, enabled):
+    """Persist only theme data in root-owned storage; hooks never read user configuration."""
+    if not enabled or not theme:
+        disable_updates()
+        return
+    pacman = bool(shutil.which("pacman"))
+    apt = os.path.isdir("/etc/apt/apt.conf.d")
+    systemd = os.path.isdir("/run/systemd/system") and bool(shutil.which("systemctl"))
+    if not (pacman or apt or systemd):
+        raise RuntimeError("Automatic reapplication requires pacman, apt or systemd")
+    os.makedirs(UPDATE_STATE, mode=0o700, exist_ok=True)
+    saved = {"css": theme.get("css", ""), "background": None}
+    images = theme.get("background")
+    if images:
+        images = images if isinstance(images, dict) else {"default": images}
+        saved["background"] = {}
+        for variant, source in images.items():
+            if variant not in ("default", "light", "dark"):
+                raise ValueError("Invalid background variant")
+            target = os.path.join(UPDATE_STATE, f"background-{variant}.jpg")
+            atomic_write(target, read_user_file(source), mode=0o600)
+            saved["background"][variant] = target
+    if os.path.exists(ALT_BASE_FILE):
+        with open(ALT_BASE_FILE) as source:
+            base = source.read().strip()
+        if os.path.isfile(base):
+            with open(base, "rb") as source:
+                saved["base_digest"] = hashlib.sha256(source.read()).hexdigest()
+    atomic_write(os.path.join(UPDATE_STATE, "theme.json"), json.dumps(saved).encode(), mode=0o600)
+    # Copy the self-contained helper. A checkout or user-writable launcher must never run on updates.
+    os.makedirs(os.path.dirname(UPDATE_RUNNER), exist_ok=True)
+    with open(__file__, "rb") as source:
+        atomic_write(UPDATE_RUNNER, source.read(), mode=0o755)
+    command = f"/usr/bin/python3 -I {UPDATE_RUNNER} reapply"
+    if pacman:
+        os.makedirs(os.path.dirname(PACMAN_HOOK), exist_ok=True)
+        atomic_write(PACMAN_HOOK, ("[Trigger]\nOperation = Install\nOperation = Upgrade\n"
+            "Type = Package\nTarget = gnome-shell\nTarget = gdm\nTarget = yaru-gnome-shell-theme\n"
+            "\n[Action]\nDescription = Reapplying Orbits login theme\nWhen = PostTransaction\n"
+            f"Exec = {command}\n").encode())
+    if apt:
+        atomic_write(APT_HOOK, f'DPkg::Post-Invoke {{ "{command} || true"; }};\n'.encode())
+    if systemd:
+        watched = {GRESOURCE, active_theme_file()}
+        # In alternatives mode the recorded distribution resource may be updated in place.
+        if os.path.exists(ALT_BASE_FILE):
+            with open(ALT_BASE_FILE) as base:
+                watched.add(base.read().strip())
+        atomic_write(UPDATE_SERVICE, ("[Unit]\nDescription=Reapply Orbits GDM theme after updates\n"
+            "StartLimitIntervalSec=120\nStartLimitBurst=3\n[Service]\nType=oneshot\nRestart=on-failure\nRestartSec=10\n" + f"ExecStart={command}\n").encode())
+        atomic_write(UPDATE_PATH, ("[Unit]\nDescription=Watch GDM theme updates (including DNF/RPM)\n"
+            "[Path]\n" + "".join(f"PathChanged={path}\n" for path in sorted(watched) if path) +
+            "Unit=orbits-gdm-reapply.service\n[Install]\nWantedBy=multi-user.target\n").encode())
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "enable", "--now", "orbits-gdm-reapply.path"], check=True)
+
+
+def cmd_reapply():
+    """Refresh on the latest distribution resource, without replaying login/auth settings."""
+    if invoking_uid() != 0:
+        raise PermissionError("Update reapplication only runs from a root package hook or service")
+    manifest = os.path.join(UPDATE_STATE, "theme.json")
+    if not os.path.isfile(manifest):
+        return
+    with open(manifest) as source:
+        theme = json.load(source)
+    active = active_theme_file()
+    if is_ours(active):
+        # An alternatives link can still select Orbits while its distribution base was upgraded.
+        if os.path.realpath(active) != os.path.realpath(OUR_GRES) or not os.path.exists(ALT_BASE_FILE):
+            return
+        with open(ALT_BASE_FILE) as source:
+            base = source.read().strip()
+        if not os.path.isfile(base):
+            raise FileNotFoundError("The original distribution theme is missing")
+        with open(base, "rb") as source:
+            digest = hashlib.sha256(source.read()).hexdigest()
+        if digest == theme.get("base_digest"):
+            return
+        theme["base_digest"] = digest
+    apply_theme(theme.get("css", ""), theme.get("background"))
+    atomic_write(manifest, json.dumps(theme).encode(), mode=0o600)
+
+
+# ---------------------------------------------------------------- authenticated undo
+UNDO_DIR = "/var/lib/orbits/undo"
+
+
+def undo_targets(argv):
+    command = argv[1] if len(argv) > 1 else ""
+    paths, refresh = [], ""
+    if command in ("apply", "reset"):
+        paths = [GRESOURCE, BACKUP, OUR_DIR, DCONF_FILE, DCONF_PROFILE, gdm_conf_path(), DATA_DIR,
+                 UPDATE_STATE, UPDATE_RUNNER, PACMAN_HOOK, APT_HOOK, UPDATE_SERVICE, UPDATE_PATH]
+        for link, name in ALTERNATIVES:
+            paths.extend([link, "/etc/alternatives/"+name, "/var/lib/dpkg/alternatives/"+name,
+                          "/var/lib/alternatives/"+name])
+        refresh = "gdm"
+    elif command == "font-remove" and len(argv) == 3:
+        if not SLUG_RE.fullmatch(argv[2]):
+            raise ValueError("Invalid font name")
+        paths = [os.path.join(SYSTEM_FONTS, argv[2])]
+        refresh = "fonts"
+    elif command == "theme-remove" and len(argv) == 4:
+        paths = [_theme_dest(argv[2], argv[3])]
+        refresh = "plymouth" if argv[2] == "plymouth" else ""
+        if refresh:
+            paths += ["/etc/plymouth/plymouthd.conf", "/usr/share/plymouth/themes/default.plymouth",
+                      "/etc/alternatives/default.plymouth", "/var/lib/dpkg/alternatives/default.plymouth"]
+    elif command == "plymouth-set" and len(argv) == 3:
+        paths = ["/etc/plymouth/plymouthd.conf", "/usr/share/plymouth/themes/default.plymouth",
+                 "/etc/alternatives/default.plymouth", "/var/lib/dpkg/alternatives/default.plymouth"]
+        refresh = "plymouth"
+    elif command in ("boot-theme-apply", "boot-theme-reset", "boot-theme-remove") and len(argv) >= 3:
+        loader = argv[2]
+        if loader == "grub":
+            paths = [GRUB_DEFAULT, os.path.join(grub_dir(), "grub.cfg")]
+        elif loader == "refind":
+            paths = [os.path.join(refind_dir(), "refind.conf")]
+        else:
+            raise ValueError("Unknown bootloader")
+        if command == "boot-theme-remove" and len(argv) == 4:
+            paths.append(_theme_dest_in(_themes_root(loader), argv[3]))
+    return list(dict.fromkeys(paths)), refresh
+
+
+def _undo_copy(source, destination):
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    if os.path.islink(source):
+        os.symlink(os.readlink(source), destination)
+    elif os.path.isdir(source):
+        shutil.copytree(source, destination, symlinks=True)
+    else:
+        shutil.copy2(source, destination)
+
+
+def capture_undo(argv):
+    paths, refresh = undo_targets(argv)
+    if not paths:
+        return None
+    import uuid
+    os.makedirs(UNDO_DIR, mode=0o700, exist_ok=True)
+    token = uuid.uuid4().hex
+    directory = os.path.join(UNDO_DIR, token)
+    os.mkdir(directory, mode=0o700)
+    entries = []
+    try:
+        for index, path in enumerate(paths):
+            exists = os.path.lexists(path)
+            if exists:
+                _undo_copy(path, os.path.join(directory, str(index)))
+            entries.append({"path":path, "exists":exists})
+        manifest = {"uid":invoking_uid(), "paths":entries, "refresh":refresh}
+        atomic_write(os.path.join(directory, "manifest.json"), json.dumps(manifest).encode(), mode=0o600)
+        return token
+    except Exception:
+        shutil.rmtree(directory)
+        raise
+
+
+def cmd_undo(token):
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        raise ValueError("Invalid undo identifier")
+    directory = os.path.join(UNDO_DIR, token)
+    with open(os.path.join(directory, "manifest.json")) as source:
+        manifest = json.load(source)
+    if manifest["uid"] != invoking_uid():
+        raise PermissionError("Only the user who made this change may undo it")
+    for index, entry in enumerate(manifest["paths"]):
+        path = entry["path"]
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        elif os.path.lexists(path):
+            os.unlink(path)
+        if entry["exists"]:
+            _undo_copy(os.path.join(directory, str(index)), path)
+            relabel(path)
+    refresh = manifest.get("refresh")
+    if refresh == "gdm":
+        dconf_update()
+        if os.path.isdir("/run/systemd/system") and shutil.which("systemctl"):
+            subprocess.run(["systemctl", "daemon-reload"], check=True)
+            subprocess.run(["systemctl", "enable" if os.path.exists(UPDATE_PATH) else "disable",
+                            "--now", "orbits-gdm-reapply.path"], check=False)
+    elif refresh == "fonts":
+        subprocess.run(["fc-cache", "-f", SYSTEM_FONTS], check=True)
+    elif refresh == "plymouth":
+        rebuild_initramfs()
+    shutil.rmtree(directory)
+    log("change undone")
+
+
 # ---------------------------------------------------------------- entry points
 def cmd_apply(spec_path):
-    with open(spec_path) as f:
-        spec = json.load(f)
+    spec = json.loads(read_user_file(spec_path))
     theme = spec.get("theme")
     if theme:
         apply_theme(theme.get("css", ""), theme.get("background"))
@@ -575,9 +1220,11 @@ def cmd_apply(spec_path):
 
     if spec.get("custom_conf") is not None:
         edit_custom_conf(spec["custom_conf"])
+    save_update_theme(theme, bool(spec.get("auto_reapply")))
 
 
 def cmd_reset():
+    disable_updates()
     restore_theme()
     if os.path.exists(DCONF_FILE):
         os.unlink(DCONF_FILE)
@@ -588,15 +1235,23 @@ def cmd_reset():
                 os.unlink(os.path.join(DATA_DIR, name))
         if not os.listdir(DATA_DIR):
             os.rmdir(DATA_DIR)
-    edit_custom_conf({"AutomaticLoginEnable": None, "AutomaticLogin": None})
+    if os.path.exists(gdm_conf_path()):
+        edit_custom_conf({"AutomaticLoginEnable": None, "AutomaticLogin": None})
 
 
 def main(argv):
     if os.geteuid() != 0:
         print("This helper must run as root (via pkexec).", file=sys.stderr)
         return 2
+    lock = None
+    undo_token = None
+    success = False
     try:
-        if len(argv) >= 2 and argv[1] in ("apply", "reset"):
+        if len(argv) >= 2 and argv[1] not in ("boot-list", "plymouth-preview"):
+            import fcntl
+            lock = open("/run/lock/orbits-gdm.lock", "a")
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        if len(argv) >= 2 and argv[1] in ("apply", "reset", "reapply", "updates-disable", "undo"):
             require_writable(SHELL_DIR, "/etc")
         elif len(argv) >= 2 and argv[1].startswith("font-"):
             require_writable(SYSTEM_FONTS)
@@ -604,8 +1259,19 @@ def main(argv):
             require_writable(THEME_BASES.get(argv[2], "/usr/share"))
         elif len(argv) >= 2 and argv[1] == "plymouth-set":
             require_writable(THEME_BASES["plymouth"], "/boot")
-        if len(argv) == 3 and argv[1] == "apply":
+        elif len(argv) >= 3 and argv[1].startswith("boot-theme"):
+            require_writable(_themes_root(argv[2]))
+            if argv[2] == "grub":
+                require_writable(os.path.dirname(GRUB_DEFAULT))
+        undo_token = capture_undo(argv)
+        if len(argv) == 3 and argv[1] == "undo":
+            cmd_undo(argv[2])
+        elif len(argv) == 3 and argv[1] == "apply":
             cmd_apply(argv[2])
+        elif len(argv) == 2 and argv[1] == "reapply":
+            cmd_reapply()
+        elif len(argv) == 2 and argv[1] == "updates-disable":
+            disable_updates()
         elif len(argv) == 2 and argv[1] == "reset":
             cmd_reset()
         elif len(argv) == 4 and argv[1] == "font-install":
@@ -618,12 +1284,38 @@ def main(argv):
             cmd_theme_remove(argv[2], argv[3])
         elif len(argv) == 3 and argv[1] == "plymouth-set":
             cmd_plymouth_set(argv[2])
+        elif len(argv) == 5 and argv[1] == "plymouth-preview":
+            cmd_plymouth_preview(argv[2], argv[3], argv[4])
+        elif len(argv) == 2 and argv[1] == "boot-list":
+            cmd_boot_list()
+            return 0
+        elif len(argv) == 5 and argv[1] == "boot-theme-install":
+            cmd_boot_theme_install(argv[2], argv[3], argv[4])
+        elif len(argv) == 4 and argv[1] == "boot-theme-apply":
+            cmd_boot_theme_apply(argv[2], argv[3])
+        elif len(argv) == 4 and argv[1] == "boot-theme-remove":
+            cmd_boot_theme_remove(argv[2], argv[3])
+        elif len(argv) == 3 and argv[1] == "boot-theme-reset":
+            cmd_boot_theme_reset(argv[2])
         else:
             print(__doc__, file=sys.stderr)
             return 2
+        success = True
+        if undo_token:
+            log("ORBITS_UNDO=" + undo_token)
+            # Keep only a small, root-owned history.
+            entries = sorted((os.path.join(UNDO_DIR, name) for name in os.listdir(UNDO_DIR)), key=os.path.getmtime)
+            for old in entries[:-10]:
+                if os.path.isdir(old):
+                    shutil.rmtree(old)
     except Exception as e:  # report cleanly to the UI
         print(f"error: {e}", file=sys.stderr)
         return 1
+    finally:
+        if undo_token and not success:
+            shutil.rmtree(os.path.join(UNDO_DIR, undo_token), ignore_errors=True)
+        if lock is not None:
+            lock.close()
     log("done")
     return 0
 

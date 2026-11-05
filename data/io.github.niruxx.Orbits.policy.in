@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Orbits</vendor>
+  <vendor_url>https://github.com/niruxx/Orbits</vendor_url>
+  <icon_name>io.github.niruxx.Orbits</icon_name>
+  <action id="io.github.niruxx.Orbits.helper">
+    <description>Customize system appearance</description>
+    <message>Authentication is required to customize system appearance or preview the boot splash</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">@APP_ROOT@/orbits/gdm/helper.py</annotate>
+  </action>
+</policyconfig>

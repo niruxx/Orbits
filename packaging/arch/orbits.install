@@ -3,6 +3,7 @@ post_install() {
 }
 
 pre_remove() {
+  /usr/bin/python3 -I /usr/lib/orbits/orbits/gdm/helper.py updates-disable || return 1
   theme=/usr/share/gnome-shell/gnome-shell-theme.gresource
   if [ -f "$theme.orbits-backup" ] && python3 -c "
 import sys

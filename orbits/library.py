@@ -1,5 +1,9 @@
 """Installed wallpaper collection: download, unpack, register with GNOME, apply, uninstall."""
+from orbits.undo import reversible, EntryState
+
 import json
+import copy
+import fcntl
 import os
 import re
 import shutil
@@ -8,6 +12,7 @@ import tempfile
 import threading
 import time
 import zipfile
+import uuid
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -17,7 +22,7 @@ from orbits import net
 from orbits.config import BG_PROPERTIES_DIR, DATA_DIR, download_dir, settings
 from orbits.sources.base import Download, Item
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".jxl", ".heic", ".svg", ".bmp", ".tif", ".tiff"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".jxl", ".heic", ".heif", ".svg", ".bmp", ".tif", ".tiff"}
 ARCHIVE_SUFFIXES = (".zip", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tar.zst")
 MAX_UNPACKED = 1 << 30  # refuse archives that expand past 1 GiB
 LIBRARY_FILE = DATA_DIR / "library.json"
@@ -133,19 +138,128 @@ class Library(GObject.Object):
             self.items = json.loads(LIBRARY_FILE.read_text())
         except (OSError, ValueError):
             pass
+        self._persisted = copy.deepcopy(self.items)
         # Drop entries whose files were deleted behind our back
         for key in [k for k, v in self.items.items() if not any(Path(f["light"]).exists() for f in v["files"])]:
             del self.items[key]
-        self._bg = Gio.Settings.new(BG_SCHEMA)
+        from orbits.desktop import background_settings
+        self._bg = background_settings()
         self._lockscreen = Gio.Settings.new(LOCK_SCHEMA)
-        self._bg.connect("changed::picture-uri", lambda *_: self.emit("changed"))
+        self._bg.connect("changed::picture-uri", self._background_changed)
+
+    def _background_changed(self, *_):
+        # Defer until a current apply/relocate operation has finished saving its paths.
+        GLib.idle_add(self._refresh_background)
+
+    def _refresh_background(self):
+        self.reload_index()
+        self.emit("changed")
+        return False
+
+    def reload_index(self):
+        """Refresh after the timer process has installed wallpapers."""
+        try:
+            data = json.loads(LIBRARY_FILE.read_text())
+            if isinstance(data, dict):
+                self.items = data
+                self._persisted = copy.deepcopy(data)
+        except (OSError, ValueError):
+            pass
+
+    def set_favorite(self, key, favorite):
+        self.items[key]["favorite"] = bool(favorite)
+        self._save()
+        self.emit("changed")
+
+    def set_collections(self, key, names):
+        self.items[key]["collections"] = sorted({n.strip()[:80] for n in names if n.strip()})
+        self._save()
+        self.emit("changed")
+
+    def collections(self):
+        return sorted({name for entry in self.items.values() for name in entry.get("collections", [])})
+
+    def add_generated(self, path, title, options="zoom", preview=None):
+        path = Path(path).resolve()
+        key = f"local:{uuid.uuid4().hex}"
+        dest_dir = download_dir() / key.replace(":", "-")
+        dest_dir.mkdir(parents=True)
+        target = dest_dir / path.name
+        shutil.copyfile(path, target)
+        rec = {"name": title, "light": str(target), "dark": None, "options": options}
+        if preview:
+            thumb = dest_dir / "preview.png"
+            shutil.copyfile(preview, thumb)
+            rec["preview"] = str(thumb)
+        entry = {"key": key, "source": "local", "id": key, "title": title, "author": "", "page_url": "",
+                 "thumb_url": "", "dir": str(dest_dir), "files": [rec], "installed_at": time.time()}
+        self.items[key] = entry
+        self._save()
+        self.emit("changed")
+        return entry
+
+    def create_slideshow(self, frames, title="Daily Wallpaper", transition=5):
+        from orbits.wallpaper_tools import slideshow_xml, open_image
+        key = f"local:{uuid.uuid4().hex}"
+        folder = download_dir() / key.replace(":", "-")
+        folder.mkdir(parents=True)
+        try:
+            copied = []
+            for i, (seconds, path) in enumerate(frames):
+                target = folder / f"frame-{i:03d}.png"
+                open_image(path).save(target)
+                copied.append((seconds, target))
+            xml = folder / "background.xml"
+            xml.write_text(slideshow_xml(copied, transition))
+            rec = {"name": title, "light": str(xml), "dark": None, "preview": str(copied[0][1])}
+            entry = {"key": key, "source": "local", "id": key, "title": title, "author": "", "page_url": "",
+                     "thumb_url": "", "dir": str(folder), "files": [rec], "installed_at": time.time()}
+            self.items[key] = entry
+            self._save()
+        except Exception:
+            self.items.pop(key, None)
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        self.emit("changed")
+        return entry
 
     # ---- persistence -------------------------------------------------
     def _save(self):
-        tmp = LIBRARY_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.items, indent=2))
-        os.replace(tmp, LIBRARY_FILE)
-        self._write_gnome_xml()
+        # Merge local changes with timer-process changes under a shared file lock.
+        LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with LIBRARY_FILE.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                disk = json.loads(LIBRARY_FILE.read_text())
+                if not isinstance(disk, dict):
+                    disk = {}
+            except (OSError, ValueError):
+                disk = {}
+            previous = getattr(self, "_persisted", {})
+            for key in previous.keys() - self.items.keys():
+                disk.pop(key, None)
+            for key, value in self.items.items():
+                if key not in previous:
+                    disk[key] = value
+                elif key in disk and value != previous[key]:
+                    # Two processes can change different metadata on the same wallpaper.
+                    merged = dict(disk[key])
+                    for field in previous[key].keys() - value.keys():
+                        merged.pop(field, None)
+                    for field, content in value.items():
+                        if field not in previous[key] or content != previous[key][field]:
+                            merged[field] = content
+                    disk[key] = merged
+            with tempfile.NamedTemporaryFile(mode="w", dir=LIBRARY_FILE.parent, delete=False) as stream:
+                json.dump(disk, stream, indent=2)
+                tmp = stream.name
+            try:
+                os.replace(tmp, LIBRARY_FILE)
+            finally:
+                Path(tmp).unlink(missing_ok=True)
+            self.items = disk
+            self._persisted = copy.deepcopy(disk)
+            self._write_gnome_xml()
 
     def _write_gnome_xml(self):
         """Register wallpapers so they also show up in GNOME Settings → Appearance."""
@@ -162,7 +276,7 @@ class Library(GObject.Object):
                 out.append(f"    <filename>{escape(f['light'])}</filename>")
                 if f.get("dark"):
                     out.append(f"    <filename-dark>{escape(f['dark'])}</filename-dark>")
-                out.append("    <options>zoom</options>")
+                out.append(f"    <options>{escape(f.get('options', 'zoom'))}</options>")
                 out.append("  </wallpaper>")
         out.append("</wallpapers>")
         BG_XML.write_text("\n".join(out) + "\n")
@@ -202,6 +316,10 @@ class Library(GObject.Object):
         def done(entry, err):
             self.busy.pop(item.key, None)
             if entry:
+                previous = self.items.get(item.key, {})
+                for field in ("favorite", "collections"):
+                    if field in previous:
+                        entry[field] = previous[field]
                 self.items[item.key] = entry
                 self._save()
             self.emit("changed")
@@ -210,12 +328,18 @@ class Library(GObject.Object):
         net.run_async(work, done)
 
     def _install_blocking(self, item: Item, download: Download, report):
+        # App workers and the timer must not replace the same download directory together.
+        with (DATA_DIR / "wallpaper-downloads.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return self._download_blocking(item, download, report)
+
+    def _download_blocking(self, item: Item, download: Download, report):
         dest_dir = download_dir() / f"{item.source}-{_slug(item.id)}"
         with tempfile.TemporaryDirectory(prefix="orbits-dl-") as tmp:
             tmp = Path(tmp)
             name = _slug(download.name) or "download"
             raw = tmp / name
-            content_type, _ = net.download(download.url, raw, report)
+            content_type, _ = net.download(download.url, raw, report, checksum=getattr(download, "md5", ""))
             unpack = tmp / "unpacked"
             unpack.mkdir()
             looks_image = _is_image(name) or content_type.startswith("image/")
@@ -230,21 +354,33 @@ class Library(GObject.Object):
             variants = _collect_variants(unpack)
             if not variants:
                 raise RuntimeError("No images were found in this download")
-            if dest_dir.exists():
-                shutil.rmtree(dest_dir)
-            dest_dir.mkdir(parents=True)
+            dest_dir.parent.mkdir(parents=True, exist_ok=True)
             files = []
-            for i, v in enumerate(variants[:200]):
-                rec = {"name": v["name"]}
-                for kind in ("light", "dark"):
-                    src = v[kind]
-                    if src is None:
-                        rec[kind] = None
-                        continue
-                    target = dest_dir / f"{i:03d}-{kind}-{_slug(v['name'])}{src.suffix.lower()}"
-                    shutil.move(src, target)
-                    rec[kind] = str(target)
-                files.append(rec)
+            with tempfile.TemporaryDirectory(prefix=".orbits-wallpaper-", dir=dest_dir.parent) as staged:
+                staged = Path(staged)
+                tree = staged / "ready"
+                tree.mkdir()
+                for i, v in enumerate(variants[:200]):
+                    rec = {"name": v["name"]}
+                    for kind in ("light", "dark"):
+                        src = v[kind]
+                        if src is None:
+                            rec[kind] = None
+                            continue
+                        name = f"{i:03d}-{kind}-{_slug(v['name'])}{src.suffix.lower()}"
+                        shutil.move(src, tree / name)
+                        rec[kind] = str(dest_dir / name)
+                    files.append(rec)
+                backup = staged / "previous"
+                if dest_dir.exists():
+                    os.rename(dest_dir, backup)
+                try:
+                    os.rename(tree, dest_dir)
+                except Exception:
+                    if backup.exists():
+                        os.rename(backup, dest_dir)
+                    raise
+
         return {
             "key": item.key,
             "source": item.source,
@@ -267,7 +403,17 @@ class Library(GObject.Object):
             src = Path(p)
             if not (src.is_file() and _is_image(src.name)):
                 continue
-            key = f"local:{_slug(src.stem)}-{int(time.time() * 1000) % 10**8}"
+            if src.suffix.lower() in (".heic", ".heif"):
+                from orbits.wallpaper_tools import heic_frames
+                with tempfile.TemporaryDirectory(prefix="orbits-heic-") as tmp:
+                    frames = heic_frames(src, tmp)
+                    if len(frames) > 1:
+                        self.create_slideshow([(i * 86400 // len(frames), p) for i, p in enumerate(frames)], src.stem)
+                    else:
+                        self.add_generated(frames[0], src.stem)
+                added += 1
+                continue
+            key = f"local:{uuid.uuid4().hex}"
             dest_dir = download_dir() / key.replace(":", "-")
             dest_dir.mkdir(parents=True, exist_ok=True)
             target = dest_dir / (_slug(src.stem) + src.suffix.lower())
@@ -283,6 +429,7 @@ class Library(GObject.Object):
         return added
 
     # ---- uninstall ----------------------------------------------------
+    @reversible("Wallpaper uninstalled", extra=lambda self, key: EntryState(self, [key], [self.items[key]["dir"]] if key in self.items else []))
     def uninstall(self, key):
         entry = self.items.pop(key, None)
         if not entry:
@@ -295,18 +442,35 @@ class Library(GObject.Object):
         self.emit("changed")
 
     # ---- apply --------------------------------------------------------
+    @reversible("Wallpaper updated")
     def apply(self, file_rec: dict, desktop=True, lockscreen=False):
+        from orbits.desktop import detect, xfce_wallpaper
+        if lockscreen and detect() == "cinnamon":
+            raise RuntimeError("Cinnamon manages the lock-screen background separately")
+        if detect() == "xfce":
+            if lockscreen:
+                raise RuntimeError("Separate lock-screen backgrounds are not supported on XFCE")
+            if desktop:
+                xfce_wallpaper(file_rec["light"], file_rec.get("options", "zoom"))
+            self._notify_apply()
+            return
         light = GLib.filename_to_uri(file_rec["light"])
         dark = GLib.filename_to_uri(file_rec["dark"]) if file_rec.get("dark") else light
         if desktop:
-            self._bg.set_string("picture-options", "zoom")
+            self._bg.set_string("picture-options", file_rec.get("options", "zoom"))
             self._bg.set_string("picture-uri", light)
             self._bg.set_string("picture-uri-dark", dark)
         if lockscreen:
             self._lockscreen.set_string("picture-options", "zoom")
             self._lockscreen.set_string("picture-uri", light)
         Gio.Settings.sync()
-        self.emit("changed")
+        self._notify_apply()
+
+    def _notify_apply(self):
+        if threading.current_thread() is threading.main_thread():
+            self.emit("changed")
+        else:
+            GLib.idle_add(lambda:(self.emit("changed"), False)[1])
 
     def relocate(self, new_root: Path):
         """Move every installed item folder into new_root and rewrite stored paths. Returns count moved."""
@@ -323,9 +487,16 @@ class Library(GObject.Object):
             shutil.move(str(old), str(target))
             for f in entry["files"]:
                 was_current = cur(f["light"]) == bg_uri
-                for kind in ("light", "dark"):
+                for kind in ("light", "dark", "preview"):
                     if f.get(kind):
                         f[kind] = str(target / Path(f[kind]).name)
+                for xml in target.glob("*.xml"):
+                    import xml.etree.ElementTree as ET
+                    tree = ET.parse(xml)
+                    for node in tree.iter():
+                        if node.text and node.text.startswith(str(old) + os.sep):
+                            node.text = str(target / Path(node.text).relative_to(old))
+                    tree.write(xml, encoding="unicode", xml_declaration=True)
                 if was_current:
                     self.apply(f)
             entry["dir"] = str(target)

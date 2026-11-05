@@ -1,0 +1,5 @@
+#!/usr/bin/python3 -P
+import sys
+sys.path.insert(0, '@APP_ROOT@')
+from orbits.entry import main
+sys.exit(main())

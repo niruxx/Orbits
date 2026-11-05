@@ -6,6 +6,7 @@ class Download:
     name: str
     url: str
     size: int = 0  # bytes, 0 if unknown
+    md5: str = ""
 
 
 @dataclass

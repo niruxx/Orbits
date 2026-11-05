@@ -1,4 +1,5 @@
 """Shared font actions: apply menu, system-wide install/remove, login screen hand-off."""
+from orbits.i18n import _ as tr
 import subprocess
 from pathlib import Path
 
@@ -10,21 +11,25 @@ from orbits.privileged import run_helper
 ROLES = [("interface", "Interface"), ("document", "Documents"), ("monospace", "Monospace")]
 
 
-def font_attrs(family, size_pt=None, weight=None):
+def font_attrs(family, size_pt=None, weight=None, variations=None, features=None):
     attrs = Pango.AttrList()
     desc = Pango.FontDescription()
     desc.set_family(family)
     if weight:
         desc.set_weight(weight)
+    if variations:
+        desc.set_variations(variations)
     attrs.insert(Pango.attr_font_desc_new(desc))
+    if features:
+        attrs.insert(Pango.attr_font_features_new(features))
     if size_pt:
         attrs.insert(Pango.attr_size_new(int(size_pt * Pango.SCALE)))
     return attrs
 
 
 def system_families():
-    fm = PangoCairo.FontMap.get_default()
-    return sorted({f.get_name() for f in fm.list_families()}, key=str.lower)
+    from orbits.fonts import system_families as families
+    return families()
 
 
 def is_system_wide(family):
@@ -41,13 +46,13 @@ def install_system_wide(window, entry, on_done=None):
     lib = get_font_library()
     src = USER_FONT_DIR / entry["slug"]
     if not src.is_dir():
-        window.toast("Install the font for your user first")
+        window.toast(tr("Install the font for your user first"))
         return
 
     def done(ok, msg):
         if ok:
             lib.mark_system(entry["key"], True)
-            window.toast(f"“{entry['family']}” installed for all users")
+            window.toast(tr('“{value0}” installed for all users').format(value0=entry['family']))
         else:
             window.toast(msg, timeout=6)
         if on_done:
@@ -62,11 +67,11 @@ def remove_system_wide(window, entry):
     def done(ok, msg):
         if ok:
             lib.mark_system(entry["key"], False)
-            window.toast(f"Removed system-wide copy of “{entry['family']}”")
+            window.toast(tr('Removed system-wide copy of “{value0}”').format(value0=entry['family']))
         else:
             window.toast(msg, timeout=6)
 
-    run_helper(["font-remove", entry["slug"]], done)
+    run_helper(["font-remove", entry["slug"]], done, undo_callback=lambda:lib.mark_system(entry["key"], True))
 
 
 def use_for_login(window, family, entry=None):
@@ -80,19 +85,18 @@ def use_for_login(window, family, entry=None):
         gdm._changed()
         window.navigate("gdm")
         gdm.stack.set_visible_child_name("style")
-        window.toast("Font set for the login screen — press Apply to save")
+        window.toast(tr("Font set for the login screen — press Apply to save"))
 
     if is_system_wide(family):
         go()
         return
     if entry is None:
-        window.toast("GDM can only use fonts installed system-wide; this one is only in your home folder", timeout=6)
+        window.toast(tr("GDM can only use fonts installed system-wide; this one is only in your home folder"), timeout=6)
         return
-    dlg = Adw.AlertDialog(heading="Install System-Wide?",
-                          body=f"The login screen runs as a separate user and can't see fonts in your home "
-                               f"folder. Install “{family}” for all users? This requires your password.")
-    dlg.add_response("cancel", "Cancel")
-    dlg.add_response("install", "Install System-Wide")
+    dlg = Adw.AlertDialog(heading=tr("Install System-Wide?"),
+                          body=tr("The login screen runs as a separate user and can't see fonts in your home folder. Install “{value0}” for all users? This requires your password.").format(value0=family))
+    dlg.add_response("cancel", tr("Cancel"))
+    dlg.add_response("install", tr("Install System-Wide"))
     dlg.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
     dlg.connect("response", lambda _d, r: r == "install" and install_system_wide(
         window, entry, lambda ok: ok and go()))
@@ -101,7 +105,7 @@ def use_for_login(window, family, entry=None):
 
 def apply_menu_button(window, family_getter, entry_getter=lambda: None, label=None):
     """A menu button offering: set as interface / document / monospace / login screen font."""
-    btn = Gtk.MenuButton(valign=Gtk.Align.CENTER, tooltip_text="Apply Font")
+    btn = Gtk.MenuButton(valign=Gtk.Align.CENTER, tooltip_text=tr("Apply Font"))
     if label:
         btn.set_child(Adw.ButtonContent(label=label, icon_name="object-select-symbolic"))
         btn.add_css_class("suggested-action")
@@ -121,9 +125,9 @@ def apply_menu_button(window, family_getter, entry_getter=lambda: None, label=No
     for role, title in ROLES:
         add(f"Use as {title} Font",
             lambda r=role, t=title: (lib.apply(family_getter(), r),
-                                     window.toast(f"{t} font set to “{family_getter()}”")))
+                                     window.toast(tr('{value0} font set to “{value1}”').format(value0=t, value1=family_getter()))))
     add("Use for Everything", lambda: ([lib.apply(family_getter(), r) for r, _ in ROLES[:2]],
-                                       window.toast(f"Interface & document fonts set to “{family_getter()}”")))
+                                       window.toast(tr('Interface & document fonts set to “{value0}”').format(value0=family_getter()))))
     box.append(Gtk.Separator(margin_top=4, margin_bottom=4))
     add("Use for Login Screen…", lambda: use_for_login(window, family_getter(), entry_getter()))
     btn.set_popover(pop)

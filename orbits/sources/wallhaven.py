@@ -32,6 +32,8 @@ class WallhavenSource(Source):
             params["apikey"] = settings.get("wallhaven_api_key")
         if sort == "toplist":
             params["topRange"] = settings.get("wallhaven_top_range") or "1y"
+        if settings.get("wallhaven_color"):
+            params["colors"] = settings.get("wallhaven_color").lstrip("#")
         if query:
             params["q"] = query
         if sort == "random":
@@ -52,7 +54,7 @@ class WallhavenSource(Source):
                     title=f"{d.get('category', 'wallpaper').title()} · {d['resolution']}",
                     author="",
                     thumb_url=d["thumbs"]["large"],
-                    preview_url=d["thumbs"]["original"],
+                    preview_url=d["path"],
                     page_url=d["url"],
                     resolution=d["resolution"],
                     stats=f"{d.get('views', 0):,} views · {d.get('favorites', 0):,} favorites",

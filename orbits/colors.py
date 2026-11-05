@@ -4,6 +4,8 @@ Libadwaita â‰¥ 1.6 styles everything through CSS variables (--window-bg-color, â
 supports `@media (prefers-color-scheme: dark)`, so one small ~/.config/gtk-4.0/gtk.css can carry
 both a light and a dark palette without replacing the whole theme.
 """
+from orbits.undo import reversible, EntryState
+
 import json
 import os
 import shutil
@@ -207,8 +209,11 @@ def prefers_dark():
     return Gio.Settings.new("org.gnome.desktop.interface").get_string("color-scheme") == "prefer-dark"
 
 
+@reversible("App colors applied")
 def apply(state):
     """Write the stylesheets for state['palette'] and persist it. Returns notes for the user."""
+    from orbits.palettes import validate
+    state["palette"] = validate(state["palette"])
     notes = []
     kind, _target = gtk4_conflict()
     if kind == "link":
@@ -229,11 +234,18 @@ def apply(state):
     if want != bool(state.get("flatpak_applied")):
         set_flatpak(want)
         state["flatpak_applied"] = want
+    if state.get("gnome_accent"):
+        from orbits.palettes import nearest_accent
+        variant = state["palette"].get("dark" if prefers_dark() else "light") or next(v for v in state["palette"].values() if v)
+        interface = Gio.Settings.new("org.gnome.desktop.interface")
+        if interface.props.settings_schema.has_key("accent-color"):
+            interface.set_string("accent-color", nearest_accent(variant["accent"]))
     state["applied"] = True
     save_state(state)
     return notes
 
 
+@reversible("App colors removed")
 def remove():
     state = load_state()
     _remove(GTK4 / "gtk.css")
@@ -267,3 +279,26 @@ def set_flatpak(enabled):
         [f"--nofilesystem={p.split(':')[0]}" for p in paths]
     subprocess.run(["flatpak", "override", "--user", *args], check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# Palette gallery: imported community presets stay local and are validated on every read.
+def gallery():
+    from orbits.palettes import validate
+    result = {}
+    for path in (CONFIG_DIR / "palettes").glob("*.json"):
+        try:
+            data = json.loads(path.read_text())
+            result[str(data["name"])] = validate(data["palette"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return result
+
+
+def save_palette(name, palette):
+    import hashlib
+    from orbits.palettes import validate
+    folder = CONFIG_DIR / "palettes"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = name.strip()[:100] or "Custom"
+    path = folder / (hashlib.sha256(name.encode()).hexdigest()[:20] + ".json")
+    path.write_text(json.dumps({"name": name, "palette": validate(palette)}, indent=2))

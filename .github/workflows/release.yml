@@ -1,0 +1,19 @@
+name: Release source archive
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check release version
+        run: |
+          python3 -c 'from orbits import VERSION; import os; assert os.environ["GITHUB_REF_NAME"] == "v" + VERSION'
+      - run: python3 packaging/build-release.py
+      - run: gh release create "$GITHUB_REF_NAME" dist/*.tar.xz dist/*.sha256 --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

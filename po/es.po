@@ -1,0 +1,125 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Orbits 0.3.0\n"
+"PO-Revision-Date: 2026-11-04 12:00-0600\n"
+"Last-Translator: Orbits contributors\n"
+"Language-Team: Spanish\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Search Orbits"
+msgstr "Buscar en Orbits"
+
+msgid "Search your library"
+msgstr "Buscar en tu biblioteca"
+
+msgid "Wallpapers, themes, fonts and Looks…"
+msgstr "Fondos, temas, fuentes y estilos…"
+
+msgid "Quick Switcher"
+msgstr "Selector rápido"
+
+msgid "Downloads"
+msgstr "Descargas"
+
+msgid "Pause"
+msgstr "Pausar"
+
+msgid "Resume"
+msgstr "Reanudar"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Looks"
+msgstr "Estilos"
+
+msgid "Next Wallpaper"
+msgstr "Siguiente fondo"
+
+msgid "Wallpaper Rotation"
+msgstr "Rotación de fondos"
+
+msgid "Preferences"
+msgstr "Preferencias"
+
+msgid "General"
+msgstr "General"
+
+msgid "Offline Mode"
+msgstr "Modo sin conexión"
+
+msgid "You are offline — showing a cached catalogue"
+msgstr "Sin conexión: se muestra un catálogo guardado"
+
+msgid "Search Everywhere"
+msgstr "Buscar en todas partes"
+
+msgid "Main Menu"
+msgstr "Menú principal"
+
+msgid "Library"
+msgstr "Biblioteca"
+
+msgid "Install"
+msgstr "Instalar"
+
+msgid "Uninstall"
+msgstr "Desinstalar"
+
+msgid "Undo"
+msgstr "Deshacer"
+
+msgid "Change undone"
+msgstr "Cambio deshecho"
+
+msgid "Refresh"
+msgstr "Actualizar"
+
+msgid "No Results"
+msgstr "Sin resultados"
+
+msgid "Login Screen"
+msgstr "Pantalla de acceso"
+
+msgid "My Fonts"
+msgstr "Mis fuentes"
+
+msgid "App Colors"
+msgstr "Colores de aplicaciones"
+
+msgid "System Check"
+msgstr "Comprobación del sistema"
+
+msgid "queued"
+msgstr "en cola"
+
+msgid "downloading"
+msgstr "descargando"
+
+msgid "paused"
+msgstr "en pausa"
+
+msgid "cancelled"
+msgstr "cancelada"
+
+msgid "completed"
+msgstr "completada"
+
+msgid "failed"
+msgstr "fallida"
+
+msgid "Browse Source"
+msgstr "Explorar origen"
+
+msgid "Open Source"
+msgstr "Abrir origen"
+
+msgid "Source"
+msgstr "Origen"

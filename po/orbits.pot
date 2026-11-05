@@ -1,0 +1,2303 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the Orbits package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Orbits 0.3.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-04 23:58-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: orbits/application.py:150 orbits/ui/global_search.py:130
+msgid "Undo"
+msgstr ""
+
+#: orbits/application.py:165 orbits/ui/global_search.py:135
+#: orbits/ui/window.py:247
+msgid "Change undone"
+msgstr ""
+
+#: orbits/application.py:183
+msgid "Discover wallpapers and fonts, and make your login screen your own."
+msgstr ""
+
+#: orbits/ui/boot_page.py:29
+msgid "Scan Installed Themes (needs password)"
+msgstr ""
+
+#: orbits/ui/boot_page.py:32
+msgid "Install Theme from File"
+msgstr ""
+
+#: orbits/ui/boot_page.py:40
+#, python-brace-format
+msgid "{value0} Themes"
+msgstr ""
+
+#: orbits/ui/boot_page.py:41 orbits/ui/boot_page.py:176
+msgid "Use Default"
+msgstr ""
+
+#: orbits/ui/boot_page.py:51 orbits/ui/themes_page.py:209
+msgid "Installed"
+msgstr ""
+
+#: orbits/ui/boot_page.py:59 orbits/ui/themes_page.py:216
+msgid "Discover"
+msgstr ""
+
+#: orbits/ui/boot_page.py:81
+msgid ""
+"Your boot files are only readable by administrators. Press ↻ to scan them; "
+"themes installed with Orbits are listed below either way."
+msgstr ""
+
+#: orbits/ui/boot_page.py:84
+#, python-brace-format
+msgid "{value0} installed in {value1} · current: {value2}"
+msgstr ""
+
+#: orbits/ui/boot_page.py:86
+msgid "No themes yet"
+msgstr ""
+
+#: orbits/ui/boot_page.py:86
+msgid "Find one in the Discover tab"
+msgstr ""
+
+#: orbits/ui/boot_page.py:102 orbits/ui/colors_page.py:130
+#: orbits/ui/fonts_browse.py:315 orbits/ui/gdm_page.py:109
+#: orbits/ui/global_search.py:91 orbits/ui/looks_page.py:52
+msgid "Apply"
+msgstr ""
+
+#: orbits/ui/boot_page.py:109
+msgid "Source"
+msgstr ""
+
+#: orbits/ui/boot_page.py:115 orbits/ui/boot_page.py:191
+#: orbits/ui/colors_page.py:127 orbits/ui/themes_page.py:521
+msgid "Remove"
+msgstr ""
+
+#: orbits/ui/boot_page.py:134
+#, python-brace-format
+msgid "Install {value0} Theme"
+msgstr ""
+
+#: orbits/ui/boot_page.py:173
+#, python-brace-format
+msgid "Restore {value0}'s Default Look?"
+msgstr ""
+
+#: orbits/ui/boot_page.py:174
+msgid "Removes the theme Orbits set. Installed themes stay available."
+msgstr ""
+
+#: orbits/ui/boot_page.py:175 orbits/ui/boot_page.py:190
+#: orbits/ui/colors_page.py:174 orbits/ui/colors_page.py:352
+#: orbits/ui/downloads_page.py:56 orbits/ui/font_actions.py:98
+#: orbits/ui/fonts_page.py:226 orbits/ui/fonts_page.py:253
+#: orbits/ui/gdm_page.py:784 orbits/ui/library_page.py:173
+#: orbits/ui/library_page.py:308 orbits/ui/looks_page.py:160
+#: orbits/ui/looks_page.py:204 orbits/ui/looks_page.py:243
+#: orbits/ui/looks_page.py:252 orbits/ui/themes_page.py:475
+#: orbits/ui/themes_page.py:535
+msgid "Cancel"
+msgstr ""
+
+#: orbits/ui/boot_page.py:189
+#, python-brace-format
+msgid "Remove “{value0}”?"
+msgstr ""
+
+#: orbits/ui/boot_page.py:189
+msgid "If it's the current theme, the default is restored."
+msgstr ""
+
+#: orbits/ui/boot_page.py:226
+#, python-brace-format
+msgid "Bootloader detection failed: {value0}"
+msgstr ""
+
+#: orbits/ui/boot_page.py:237
+msgid "Bootloader"
+msgstr ""
+
+#: orbits/ui/boot_page.py:247
+msgid "Detected"
+msgstr ""
+
+#: orbits/ui/boot_page.py:253
+msgid "Managing"
+msgstr ""
+
+#: orbits/ui/boot_page.py:255
+msgid "Manage"
+msgstr ""
+
+#: orbits/ui/boot_page.py:260
+msgid ""
+"Applying a theme edits GRUB_THEME in /etc/default/grub (backed up first) and "
+"regenerates grub.cfg."
+msgstr ""
+
+#: orbits/ui/boot_page.py:263
+msgid ""
+"Themes are copied to EFI/refind/themes on your EFI partition and enabled "
+"with an Orbits-managed include at the end of refind.conf (backed up first)."
+msgstr ""
+
+#: orbits/ui/browse.py:41
+msgid "Browse Source"
+msgstr ""
+
+#: orbits/ui/browse.py:45
+msgid "Refresh"
+msgstr ""
+
+#: orbits/ui/browse.py:50
+msgid "Sort"
+msgstr ""
+
+#: orbits/ui/browse.py:56 orbits/ui/fonts_browse.py:90
+#: orbits/ui/library_page.py:28
+msgid "Search (Ctrl+F)"
+msgstr ""
+
+#: orbits/ui/browse.py:58 orbits/ui/fonts_browse.py:97
+#, python-brace-format
+msgid "Search {value0}…"
+msgstr ""
+
+#: orbits/ui/browse.py:86
+msgid "Hide Installed"
+msgstr ""
+
+#: orbits/ui/browse.py:87
+msgid "Fits My Screen"
+msgstr ""
+
+#: orbits/ui/browse.py:111 orbits/ui/fonts_browse.py:141
+msgid "You are offline — showing a cached catalogue"
+msgstr ""
+
+#: orbits/ui/browse.py:159
+#, python-brace-format
+msgid "Couldn't load more: {value0}"
+msgstr ""
+
+#: orbits/ui/browse.py:190 orbits/ui/fonts_browse.py:30
+#: orbits/ui/fonts_browse.py:318
+msgid "Install"
+msgstr ""
+
+#: orbits/ui/browse.py:239
+#, python-brace-format
+msgid "Install failed: {value0}"
+msgstr ""
+
+#: orbits/ui/browse.py:260 orbits/ui/library_page.py:168
+#, python-brace-format
+msgid "Wallpaper set to “{value0}”"
+msgstr ""
+
+#: orbits/ui/colors_page.py:36
+msgid "App Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:37
+msgid "Recolor libadwaita apps"
+msgstr ""
+
+#: orbits/ui/colors_page.py:42
+msgid "Light"
+msgstr ""
+
+#: orbits/ui/colors_page.py:43
+msgid "Dark"
+msgstr ""
+
+#: orbits/ui/colors_page.py:48
+msgid "Wallpaper Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:54
+msgid "Match GNOME Accent"
+msgstr ""
+
+#: orbits/ui/colors_page.py:55
+msgid "Choose the closest system accent when applying colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:65
+msgid "Presets"
+msgstr ""
+
+#: orbits/ui/colors_page.py:68
+msgid "Community Palettes"
+msgstr ""
+
+#: orbits/ui/colors_page.py:69
+msgid ""
+"Import Orbits JSON or a Gradience preset. Imported palettes appear in the "
+"gallery above."
+msgstr ""
+
+#: orbits/ui/colors_page.py:77
+msgid "Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:78
+msgid "Customize This Style"
+msgstr ""
+
+#: orbits/ui/colors_page.py:79
+msgid "Off keeps libadwaita's default colors for this style"
+msgstr ""
+
+#: orbits/ui/colors_page.py:94
+msgid "Apply To"
+msgstr ""
+
+#: orbits/ui/colors_page.py:95
+msgid "Libadwaita &amp; GTK4 apps"
+msgstr ""
+
+#: orbits/ui/colors_page.py:95
+msgid "~/.config/gtk-4.0/gtk.css · restart apps to see changes"
+msgstr ""
+
+#: orbits/ui/colors_page.py:97
+msgid "GTK3 apps (adw-gtk3)"
+msgstr ""
+
+#: orbits/ui/colors_page.py:97
+msgid "Requires the adw-gtk3 theme; uses the palette of your current style"
+msgstr ""
+
+#: orbits/ui/colors_page.py:101
+msgid "Flatpak apps"
+msgstr ""
+
+#: orbits/ui/colors_page.py:101
+msgid "Grants Flatpaks read-only access to your GTK config folders"
+msgstr ""
+
+#: orbits/ui/colors_page.py:105
+msgid "Match Login Screen Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:105
+msgid ""
+"Open the login editor with this accent and text color; press Apply there to "
+"save"
+msgstr ""
+
+#: orbits/ui/colors_page.py:110
+msgid "Export Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:110
+msgid ""
+"Create importable color files for your selected style. Existing application "
+"settings are kept."
+msgstr ""
+
+#: orbits/ui/colors_page.py:116
+msgid "Export Selected…"
+msgstr ""
+
+#: orbits/ui/colors_page.py:116
+msgid ""
+"Choose a folder for Kitty, Alacritty, Ptyxis, VS Code and Firefox color files"
+msgstr ""
+
+#: orbits/ui/colors_page.py:148 orbits/ui/look_tools.py:133
+msgid "Preview"
+msgstr ""
+
+#: orbits/ui/colors_page.py:148
+msgid "Your apps"
+msgstr ""
+
+#: orbits/ui/colors_page.py:150 orbits/ui/welcome.py:85
+msgid "Back"
+msgstr ""
+
+#: orbits/ui/colors_page.py:151
+msgid "Preview Menu"
+msgstr ""
+
+#: orbits/ui/colors_page.py:166
+msgid "Wi-Fi"
+msgstr ""
+
+#: orbits/ui/colors_page.py:166
+msgid "Connected"
+msgstr ""
+
+#: orbits/ui/colors_page.py:167
+msgid "Bluetooth"
+msgstr ""
+
+#: orbits/ui/colors_page.py:167
+msgid "Off"
+msgstr ""
+
+#: orbits/ui/colors_page.py:172
+msgid "Search…"
+msgstr ""
+
+#: orbits/ui/colors_page.py:175 orbits/ui/colors_page.py:353
+#: orbits/ui/font_tools.py:21 orbits/ui/fonts_page.py:226
+#: orbits/ui/library_page.py:309 orbits/ui/looks_page.py:161
+msgid "Save"
+msgstr ""
+
+#: orbits/ui/colors_page.py:176 orbits/ui/looks_page.py:253
+msgid "Delete"
+msgstr ""
+
+#: orbits/ui/colors_page.py:177
+msgid "Accent text"
+msgstr ""
+
+#: orbits/ui/colors_page.py:249
+#, python-brace-format
+msgid "{value0} style · preset: {value1}"
+msgstr ""
+
+#: orbits/ui/colors_page.py:264
+msgid ""
+"Applying replaces the GTK4 theme currently linked into ~/.config/gtk-4.0"
+msgstr ""
+
+#: orbits/ui/colors_page.py:266
+msgid "Your own gtk.css will be backed up to ~/.config/gtk-4.0/orbits-backup"
+msgstr ""
+
+#: orbits/ui/colors_page.py:283
+msgid "App colors removed"
+msgstr ""
+
+#: orbits/ui/colors_page.py:287
+msgid "Generating a palette from the wallpaper…"
+msgstr ""
+
+#: orbits/ui/colors_page.py:308
+msgid "Choose an image to generate a palette"
+msgstr ""
+
+#: orbits/ui/colors_page.py:313
+msgid "Choose Wallpaper for Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:329
+msgid "Import Palette"
+msgstr ""
+
+#: orbits/ui/colors_page.py:343
+#, python-brace-format
+msgid "Imported palette “{value0}”"
+msgstr ""
+
+#: orbits/ui/colors_page.py:349
+msgid "Save Palette"
+msgstr ""
+
+#: orbits/ui/colors_page.py:350
+msgid "Palette name"
+msgstr ""
+
+#: orbits/ui/colors_page.py:362
+msgid "Palette saved to gallery"
+msgstr ""
+
+#: orbits/ui/colors_page.py:375
+msgid "Customize this style first"
+msgstr ""
+
+#: orbits/ui/colors_page.py:380
+msgid "Palette loaded in the login editor — press Apply to save"
+msgstr ""
+
+#: orbits/ui/colors_page.py:385
+msgid "Select at least one export target"
+msgstr ""
+
+#: orbits/ui/colors_page.py:392
+msgid "Export Palette Colors"
+msgstr ""
+
+#: orbits/ui/colors_page.py:403
+#, python-brace-format
+msgid "Exported {value0} color files"
+msgstr ""
+
+#: orbits/ui/detail.py:60
+msgid "Files"
+msgstr ""
+
+#: orbits/ui/detail.py:61
+msgid "This item offers several downloads; install the one you want."
+msgstr ""
+
+#: orbits/ui/detail.py:65
+msgid "Install this file"
+msgstr ""
+
+#: orbits/ui/detail.py:75 orbits/ui/themes_page.py:173
+msgid "Open Source"
+msgstr ""
+
+#: orbits/ui/detail.py:78 orbits/ui/fonts_browse.py:272
+#: orbits/ui/library_page.py:282
+msgid "Open in Browser"
+msgstr ""
+
+#: orbits/ui/detail.py:96
+msgid "Store Details"
+msgstr ""
+
+#: orbits/ui/detail.py:97
+msgid "Loading ratings and changelog…"
+msgstr ""
+
+#: orbits/ui/detail.py:100
+msgid "Comments"
+msgstr ""
+
+#: orbits/ui/detail.py:101
+msgid "Loading comments…"
+msgstr ""
+
+#: orbits/ui/detail.py:103 orbits/ui/detail.py:164
+msgid "Load More Comments"
+msgstr ""
+
+#: orbits/ui/detail.py:111
+msgid "Store details unavailable"
+msgstr ""
+
+#: orbits/ui/detail.py:114
+msgid "Retry"
+msgstr ""
+
+#: orbits/ui/detail.py:123
+msgid "Changelog"
+msgstr ""
+
+#: orbits/ui/detail.py:123
+msgid "Expand to read version notes"
+msgstr ""
+
+#: orbits/ui/detail.py:124
+msgid "Release notes"
+msgstr ""
+
+#: orbits/ui/detail.py:141
+msgid "Comments unavailable"
+msgstr ""
+
+#: orbits/ui/detail.py:143
+msgid "Retry Comments"
+msgstr ""
+
+#: orbits/ui/detail.py:149
+msgid "No comments yet"
+msgstr ""
+
+#: orbits/ui/detail.py:195 orbits/ui/gdm_page.py:55
+#: orbits/ui/library_page.py:258
+msgid "More"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:8 orbits/ui/preferences.py:90
+msgid "Downloads"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:17
+msgid ""
+"Pause to resume later. Cancel keeps partial data for the next Install "
+"attempt."
+msgstr ""
+
+#: orbits/ui/downloads_page.py:22
+msgid "Clear Finished"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:22
+msgid ""
+"Remove finished transfer history and cached archives; keep partial files"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:46
+msgid "queued"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:46
+msgid "downloading"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:46
+msgid "paused"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:47
+msgid "cancelled"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:47
+msgid "completed"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:47
+msgid "failed"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:53
+msgid "Resume"
+msgstr ""
+
+#: orbits/ui/downloads_page.py:53
+msgid "Pause"
+msgstr ""
+
+#: orbits/ui/font_actions.py:49
+msgid "Install the font for your user first"
+msgstr ""
+
+#: orbits/ui/font_actions.py:55
+#, python-brace-format
+msgid "“{value0}” installed for all users"
+msgstr ""
+
+#: orbits/ui/font_actions.py:70
+#, python-brace-format
+msgid "Removed system-wide copy of “{value0}”"
+msgstr ""
+
+#: orbits/ui/font_actions.py:88
+msgid "Font set for the login screen — press Apply to save"
+msgstr ""
+
+#: orbits/ui/font_actions.py:94
+msgid ""
+"GDM can only use fonts installed system-wide; this one is only in your home "
+"folder"
+msgstr ""
+
+#: orbits/ui/font_actions.py:96
+msgid "Install System-Wide?"
+msgstr ""
+
+#: orbits/ui/font_actions.py:97
+#, python-brace-format
+msgid ""
+"The login screen runs as a separate user and can't see fonts in your home "
+"folder. Install “{value0}” for all users? This requires your password."
+msgstr ""
+
+#: orbits/ui/font_actions.py:99
+msgid "Install System-Wide"
+msgstr ""
+
+#: orbits/ui/font_actions.py:108
+msgid "Apply Font"
+msgstr ""
+
+#: orbits/ui/font_actions.py:128
+#, python-brace-format
+msgid "{value0} font set to “{value1}”"
+msgstr ""
+
+#: orbits/ui/font_actions.py:130
+#, python-brace-format
+msgid "Interface & document fonts set to “{value0}”"
+msgstr ""
+
+#: orbits/ui/font_tools.py:47
+msgid "Variable Font Axes"
+msgstr ""
+
+#: orbits/ui/font_tools.py:49
+msgid "OpenType Features"
+msgstr ""
+
+#: orbits/ui/font_tools.py:61
+msgid "Reading font tables…"
+msgstr ""
+
+#: orbits/ui/font_tools.py:64
+msgid "License"
+msgstr ""
+
+#: orbits/ui/font_tools.py:67
+msgid "Glyph Map"
+msgstr ""
+
+#: orbits/ui/font_tools.py:67
+msgid ""
+"Click a character to copy it. Only characters present in this font are "
+"listed."
+msgstr ""
+
+#: orbits/ui/font_tools.py:68
+msgid "Character, Unicode name or U+ codepoint"
+msgstr ""
+
+#: orbits/ui/font_tools.py:77
+msgid "Previous"
+msgstr ""
+
+#: orbits/ui/font_tools.py:79 orbits/ui/welcome.py:90
+msgid "Next"
+msgstr ""
+
+#: orbits/ui/font_tools.py:105
+#, python-brace-format
+msgid "{value0} ({value1})"
+msgstr ""
+
+#: orbits/ui/font_tools.py:137
+#, python-brace-format
+msgid "U+{value0:04X} · {value1}"
+msgstr ""
+
+#: orbits/ui/font_tools.py:140
+#, python-brace-format
+msgid "{value0} characters · page {value1}"
+msgstr ""
+
+#: orbits/ui/font_tools.py:148
+msgid "Font applied; axis settings are included"
+msgstr ""
+
+#: orbits/ui/font_tools.py:154
+msgid "Compare Fonts & Pairings"
+msgstr ""
+
+#: orbits/ui/font_tools.py:179
+msgid "Heading + Body Pairings"
+msgstr ""
+
+#: orbits/ui/font_tools.py:179
+msgid ""
+"Suggested pairs are examples; missing fonts use fallback until installed "
+"from the font browser."
+msgstr ""
+
+#: orbits/ui/font_tools.py:181
+#, python-brace-format
+msgid "{value0} + {value1}"
+msgstr ""
+
+#: orbits/ui/font_tools.py:182 orbits/ui/fonts_page.py:31
+msgid "Compare"
+msgstr ""
+
+#: orbits/ui/font_tools.py:201
+msgid "Font Preferences"
+msgstr ""
+
+#: orbits/ui/font_tools.py:204
+msgid "Emoji Fallback"
+msgstr ""
+
+#: orbits/ui/font_tools.py:204
+msgid ""
+"Per-user fontconfig preferences apply to applications that use fontconfig. "
+"Restart running apps after changes."
+msgstr ""
+
+#: orbits/ui/font_tools.py:205
+msgid "Emoji Family (blank for system default)"
+msgstr ""
+
+#: orbits/ui/font_tools.py:207
+msgid "Per-Family Hinting"
+msgstr ""
+
+#: orbits/ui/font_tools.py:208
+msgid "Font Family"
+msgstr ""
+
+#: orbits/ui/font_tools.py:209
+msgid "Hinting"
+msgstr ""
+
+#: orbits/ui/font_tools.py:211
+msgid "Add Hinting Rule"
+msgstr ""
+
+#: orbits/ui/font_tools.py:214
+msgid "Font Substitutions"
+msgstr ""
+
+#: orbits/ui/font_tools.py:215
+msgid "Requested Family"
+msgstr ""
+
+#: orbits/ui/font_tools.py:216
+msgid "Preferred Replacement"
+msgstr ""
+
+#: orbits/ui/font_tools.py:218
+msgid "Add Substitution"
+msgstr ""
+
+#: orbits/ui/font_tools.py:243
+msgid "Remove Font Rule"
+msgstr ""
+
+#: orbits/ui/font_tools.py:251
+msgid "Font preferences saved — restart apps to refresh font choices"
+msgstr ""
+
+#: orbits/ui/fonts_browse.py:26 orbits/ui/fonts_page.py:161
+#: orbits/ui/themes_page.py:153
+msgid "Aa"
+msgstr ""
+
+#: orbits/ui/fonts_browse.py:228
+#, python-brace-format
+msgid "Font install failed: {value0}"
+msgstr ""
+
+#: orbits/ui/fonts_browse.py:252
+msgid "Type to preview…"
+msgstr ""
+
+#: orbits/ui/fonts_browse.py:260
+#, python-brace-format
+msgid ""
+"ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"
+"abcdefghijklmnopqrstuvwxyz\n"
+"0123456789 !?&@#%(){}"
+msgstr ""
+
+#: orbits/ui/fonts_browse.py:311 orbits/ui/fonts_page.py:254
+#: orbits/ui/library_page.py:136 orbits/ui/library_page.py:174
+#: orbits/ui/library_page.py:255 orbits/ui/themes_page.py:531
+msgid "Uninstall"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:25
+msgid "My Fonts"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:25
+msgid "Manage and apply fonts"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:26
+msgid "Rescan Fonts"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:29
+msgid "Import Font Files or ZIP…"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:33
+msgid "Emoji, Hinting and Substitutions"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:39
+msgid "Font Collection"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:41
+msgid "Show Collection"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:44
+msgid "Installed with Orbits"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:45
+msgid "Get More Fonts"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:51
+msgid "All Fonts on This System"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:52
+msgid "Filter fonts…"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:85
+msgid "Desktop Fonts"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:85
+msgid "Applied instantly to your session."
+msgstr ""
+
+#: orbits/ui/fonts_page.py:88
+#, python-brace-format
+msgid "{value0} Font"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:114
+msgid "Rendering"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:118 orbits/ui/gdm_page.py:210
+msgid "Text Scaling"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:150
+msgid "No fonts installed yet"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:151
+msgid "Browse Google Fonts or Nerd Fonts in the sidebar"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:164
+msgid "Enable for Your User"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:168
+msgid "Font Actions"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:224
+msgid "Font Collections"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:224
+msgid "Separate collection names with commas."
+msgstr ""
+
+#: orbits/ui/fonts_page.py:234
+msgid "Import Fonts"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:244
+msgid "Validating and installing fonts…"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:251 orbits/ui/library_page.py:171
+#: orbits/ui/themes_page.py:531
+#, python-brace-format
+msgid "Uninstall “{value0}”?"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:252
+msgid "Apps using this font will fall back to another one."
+msgstr ""
+
+#: orbits/ui/fonts_page.py:257 orbits/ui/library_page.py:181
+#: orbits/ui/themes_page.py:527
+#, python-brace-format
+msgid "Uninstalled “{value0}”"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:274
+msgid "The quick brown fox"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:278
+msgid "Font Details & Glyph Map"
+msgstr ""
+
+#: orbits/ui/fonts_page.py:286
+#, python-brace-format
+msgid "{value0} font families available"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:47 orbits/ui/gdm_page.py:71
+msgid "Login Screen"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:48
+msgid "Customize GDM & the lock screen"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:50
+msgid "Reset Everything to Defaults…"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:51
+msgid "Open Theme Backup Folder"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:52
+msgid "Preview Greeter"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:52
+msgid "Open the real greeter in a nested window"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:72
+msgid "Lock Screen"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:78
+msgid "Background"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:79 orbits/ui/gdm_page.py:194
+#: orbits/ui/preferences.py:125
+msgid "Style"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:80
+msgid "Clock"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:81
+msgid "Login"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:82
+msgid "System"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:102
+msgid "Revert"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:135
+msgid "Login Background"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:136
+msgid "Shown behind the GDM login dialog."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:137
+msgid "Type"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:140
+msgid "Image"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:140
+msgid "No image selected"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:143
+msgid "Choose from Library"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:148 orbits/ui/gdm_page.py:167
+#: orbits/ui/gdm_page.py:287 orbits/ui/gdm_page.py:713
+msgid "Choose…"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:153
+msgid "Blur"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:153
+msgid "Soften the image"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:154
+msgid "Dim"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:154
+msgid "Darken for better contrast"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:160
+msgid "Direction"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:166
+#, python-brace-format
+msgid "{value0} Background"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:169
+msgid "Use the main image"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:176
+msgid "Per-monitor Backgrounds"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:177
+msgid ""
+"Compose images for the current display layout. GDM must use the same layout; "
+"reapply after changing Displays settings. Empty choices use the global "
+"images."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:179
+msgid "Display Layout"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:180
+msgid "Configure…"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:182 orbits/ui/preferences.py:226
+msgid "Clear"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:191 orbits/ui/preferences.py:124
+msgid "Appearance"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:197
+msgid "Custom Panel Opacity"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:199
+msgid "Opacity"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:199
+msgid "0 is transparent; 100 is opaque"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:203
+msgid "Custom Text Color"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:203
+msgid "Login dialog and lock screen clock"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:205
+msgid "Themes &amp; Fonts"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:206
+msgid "Only themes installed system-wide (in /usr/share) are available to GDM."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:208
+msgid "Interface Font"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:212
+msgid "Icon Theme"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:214
+msgid "Cursor Theme"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:216
+msgid "Cursor Size"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:218
+msgid "Animations"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:230
+msgid "Top Bar"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:232
+msgid "Time Format"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:239
+msgid "Lock Screen Clock"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:240
+msgid ""
+"Applies to the big clock on the lock screen. Switch the preview to “Lock "
+"Screen” to see it."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:243
+msgid "Size"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:244
+msgid "In em — GNOME's default is 6.5"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:248
+msgid "Weight"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:254
+msgid "Custom Clock Style"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:260
+msgid "Clock Font Family"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:261
+msgid "Use a system-wide font family; leave empty for the default"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:279
+msgid "Branding"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:280
+msgid "Logo"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:280
+msgid "Shown at the bottom of the login screen"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:285
+msgid "Remove Logo"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:294
+msgid "Welcome Message"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:294
+msgid "Text shown above the login prompt"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:296
+msgid "Message"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:304
+msgid "Behaviour"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:311
+msgid "Authentication Methods"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:317
+msgid "Automatic Login"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:318
+msgid "Skips the login screen entirely on boot. Use with care."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:320
+msgid "Log In Automatically"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:322
+msgid "User"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:340
+msgid "Use Wayland"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:340
+msgid "Turn off to force the X11 login screen"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:344
+msgid "Touchpad &amp; Mouse"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:349
+msgid "Mouse Speed"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:351
+msgid "Power"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:357
+msgid "Night Light"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:359
+msgid "Accessibility"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:363
+msgid "System Updates"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:364
+msgid ""
+"Keep the applied login theme after package updates. Uses pacman/apt hooks "
+"and a systemd watcher for DNF/RPM updates. Enabling or disabling takes "
+"effect on Apply."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:366
+msgid "Reapply Theme After Updates"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:436
+msgid "Color"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:461
+msgid "Accent Color"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:533
+msgid ""
+"Your library is empty.\n"
+"Install some wallpapers first!"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:557
+msgid "Unsaved changes — applying requires your password"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:560
+msgid "Originals are backed up and can be restored at any time"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:604
+msgid "pkexec is not available — changes can't be applied"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:607
+msgid "This system's /usr is read-only, so the login screen can't be changed"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:610
+msgid "GDM doesn't appear to be installed on this system"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:613
+msgid "A system update reset your login screen theme"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:642
+#, python-brace-format
+msgid "Couldn't prepare login settings: {value0}"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:671
+msgid "Greeter Preview"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:672
+msgid ""
+"The greeter is running in a separate window using your draft settings. "
+"Authentication is unavailable in this preview. Close it here when finished."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:674
+msgid "Close Preview"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:691
+msgid "Login Backgrounds by Monitor"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:692
+msgid "Choose light and dark images for each connected display."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:711
+#, python-brace-format
+msgid "{value0} — {value1}"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:721
+msgid "Choose Login Background"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:732 orbits/ui/gdm_page.py:735
+msgid "Use global image"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:739
+msgid "Use This Layout"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:763
+msgid "Login screen updated — log out to see it"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:781
+msgid "Reset Login Screen?"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:782
+msgid ""
+"This restores the original GNOME Shell theme, removes all Orbits GDM "
+"settings and disables automatic login. Settings made by other tools are left "
+"alone."
+msgstr ""
+
+#: orbits/ui/gdm_page.py:785
+msgid "Reset"
+msgstr ""
+
+#: orbits/ui/gdm_page.py:795
+msgid "Login screen restored to defaults"
+msgstr ""
+
+#: orbits/ui/gdm_preview.py:148
+msgid "N"
+msgstr ""
+
+#: orbits/ui/gdm_preview.py:153
+msgid "Password"
+msgstr ""
+
+#: orbits/ui/gdm_preview.py:156
+msgid "Not listed?"
+msgstr ""
+
+#: orbits/ui/gdm_preview.py:172
+msgid "Click or press a key to unlock"
+msgstr ""
+
+#: orbits/ui/global_search.py:11
+msgid "Search Orbits"
+msgstr ""
+
+#: orbits/ui/global_search.py:20
+msgid "System Font"
+msgstr ""
+
+#: orbits/ui/global_search.py:27
+msgid "Wallpapers, themes, fonts and Looks…"
+msgstr ""
+
+#: orbits/ui/global_search.py:28
+msgid "Search your library"
+msgstr ""
+
+#: orbits/ui/global_search.py:47
+msgid "Searches installed items. Use each store’s search to discover more."
+msgstr ""
+
+#: orbits/ui/global_search.py:60
+msgid "Wallpaper"
+msgstr ""
+
+#: orbits/ui/global_search.py:60
+msgid "Theme"
+msgstr ""
+
+#: orbits/ui/global_search.py:60
+msgid "Font"
+msgstr ""
+
+#: orbits/ui/global_search.py:60
+msgid "Look"
+msgstr ""
+
+#: orbits/ui/global_search.py:81 orbits/ui/window.py:147
+msgid "Quick Switcher"
+msgstr ""
+
+#: orbits/ui/global_search.py:88 orbits/ui/looks_page.py:84
+msgid "Looks"
+msgstr ""
+
+#: orbits/ui/global_search.py:96 orbits/ui/wallpaper_tools.py:87
+msgid "Wallpaper Rotation"
+msgstr ""
+
+#: orbits/ui/global_search.py:107
+msgid "Next Wallpaper"
+msgstr ""
+
+#: orbits/ui/global_search.py:144
+msgid "Look applied"
+msgstr ""
+
+#: orbits/ui/library_page.py:23 orbits/ui/preferences.py:110
+#: orbits/ui/preferences.py:237
+msgid "Library"
+msgstr ""
+
+#: orbits/ui/library_page.py:23
+msgid "Your installed wallpapers"
+msgstr ""
+
+#: orbits/ui/library_page.py:24
+msgid "Import Images…"
+msgstr ""
+
+#: orbits/ui/library_page.py:25 orbits/ui/look_tools.py:135
+msgid "Import"
+msgstr ""
+
+#: orbits/ui/library_page.py:30
+msgid "Open Download Folder"
+msgstr ""
+
+#: orbits/ui/library_page.py:33 orbits/ui/wallpaper_tools.py:55
+msgid "Wallpaper Tools"
+msgstr ""
+
+#: orbits/ui/library_page.py:38
+msgid "Filter by name…"
+msgstr ""
+
+#: orbits/ui/library_page.py:73
+msgid "Collection"
+msgstr ""
+
+#: orbits/ui/library_page.py:135
+msgid "Toggle Favorite"
+msgstr ""
+
+#: orbits/ui/library_page.py:137 orbits/ui/library_page.py:269
+msgid "Set as Wallpaper"
+msgstr ""
+
+#: orbits/ui/library_page.py:172
+#, python-brace-format
+msgid "{value0} file(s) will be deleted from disk."
+msgstr ""
+
+#: orbits/ui/library_page.py:194
+msgid "Import Wallpapers"
+msgstr ""
+
+#: orbits/ui/library_page.py:209
+#, python-brace-format
+msgid "Import failed: {value0}"
+msgstr ""
+
+#: orbits/ui/library_page.py:236
+msgid "Light + Dark"
+msgstr ""
+
+#: orbits/ui/library_page.py:305
+msgid "Wallpaper Collections"
+msgstr ""
+
+#: orbits/ui/library_page.py:306
+msgid "Nature, Favorites, Work"
+msgstr ""
+
+#: orbits/ui/library_page.py:320
+msgid "Lock screen background updated"
+msgstr ""
+
+#: orbits/ui/look_tools.py:22
+msgid "Save Schedule"
+msgstr ""
+
+#: orbits/ui/look_tools.py:31 orbits/ui/looks_page.py:94
+msgid "Schedule Looks"
+msgstr ""
+
+#: orbits/ui/look_tools.py:37 orbits/ui/wallpaper_tools.py:90
+msgid "Schedule"
+msgstr ""
+
+#: orbits/ui/look_tools.py:37
+msgid ""
+"Uses systemd user services, including while Orbits is closed. Applies "
+"desktop settings only; login changes always require the login editor."
+msgstr ""
+
+#: orbits/ui/look_tools.py:38
+msgid "Enable Scheduled Looks"
+msgstr ""
+
+#: orbits/ui/look_tools.py:40
+msgid "Schedule Type"
+msgstr ""
+
+#: orbits/ui/look_tools.py:43
+msgid "Daily Looks"
+msgstr ""
+
+#: orbits/ui/look_tools.py:43
+msgid "Uses your desktop's local time. Start times may cross midnight."
+msgstr ""
+
+#: orbits/ui/look_tools.py:45
+msgid "Day Starts (HH:MM)"
+msgstr ""
+
+#: orbits/ui/look_tools.py:47
+msgid "Night Starts (HH:MM)"
+msgstr ""
+
+#: orbits/ui/look_tools.py:49
+msgid "Weekday Looks"
+msgstr ""
+
+#: orbits/ui/look_tools.py:79
+msgid "Community Looks"
+msgstr ""
+
+#: orbits/ui/look_tools.py:83
+msgid "Community Catalogue"
+msgstr ""
+
+#: orbits/ui/look_tools.py:83
+msgid ""
+"Open a shared index.json or enter its HTTPS URL. Preview and import Looks "
+"here; apply them separately from your saved collection."
+msgstr ""
+
+#: orbits/ui/look_tools.py:86
+msgid "Catalogue URL or Local File"
+msgstr ""
+
+#: orbits/ui/look_tools.py:89
+msgid "Load Catalogue"
+msgstr ""
+
+#: orbits/ui/look_tools.py:91
+msgid "Open File…"
+msgstr ""
+
+#: orbits/ui/look_tools.py:94
+msgid ""
+"No public catalogue is configured. Open a catalogue shared by another Orbits "
+"user."
+msgstr ""
+
+#: orbits/ui/look_tools.py:103
+msgid "Open Community Catalogue"
+msgstr ""
+
+#: orbits/ui/look_tools.py:114
+msgid "Loading community Looks…"
+msgstr ""
+
+#: orbits/ui/looks_page.py:59
+msgid "Look Actions"
+msgstr ""
+
+#: orbits/ui/looks_page.py:84
+msgid "Whole-desktop setups"
+msgstr ""
+
+#: orbits/ui/looks_page.py:86
+msgid "Save Current Look"
+msgstr ""
+
+#: orbits/ui/looks_page.py:89
+msgid "Import a Look…"
+msgstr ""
+
+#: orbits/ui/looks_page.py:92
+msgid "Community"
+msgstr ""
+
+#: orbits/ui/looks_page.py:102
+msgid "No Looks Yet"
+msgstr ""
+
+#: orbits/ui/looks_page.py:103
+msgid ""
+"Save your current wallpaper, themes, fonts and colors as a Look, then switch "
+"between setups — or share them as a file."
+msgstr ""
+
+#: orbits/ui/looks_page.py:105
+msgid "History"
+msgstr ""
+
+#: orbits/ui/looks_page.py:106
+msgid "Saved automatically before each Look is applied"
+msgstr ""
+
+#: orbits/ui/looks_page.py:135
+#, python-brace-format
+msgid "{value0} · {value1}"
+msgstr ""
+
+#: orbits/ui/looks_page.py:136
+msgid "Restore"
+msgstr ""
+
+#: orbits/ui/looks_page.py:139
+msgid "Keep as a Look"
+msgstr ""
+
+#: orbits/ui/looks_page.py:149
+msgid "Captures your wallpaper, themes, fonts, accent color and app colors."
+msgstr ""
+
+#: orbits/ui/looks_page.py:151
+msgid "Name"
+msgstr ""
+
+#: orbits/ui/looks_page.py:154
+msgid "Include Login Screen"
+msgstr ""
+
+#: orbits/ui/looks_page.py:156
+msgid "Capture Desktop Screenshot"
+msgstr ""
+
+#: orbits/ui/looks_page.py:156
+msgid "Uses the desktop screenshot portal; included when this Look is exported"
+msgstr ""
+
+#: orbits/ui/looks_page.py:193
+msgid "Saved as a Look"
+msgstr ""
+
+#: orbits/ui/looks_page.py:196
+#, python-brace-format
+msgid "Apply “{value0}”?"
+msgstr ""
+
+#: orbits/ui/looks_page.py:196
+msgid ""
+"Choose which parts of this Look to apply. Login settings are loaded into the "
+"editor for a separate Apply action."
+msgstr ""
+
+#: orbits/ui/looks_page.py:204
+msgid "Apply Selected"
+msgstr ""
+
+#: orbits/ui/looks_page.py:209
+msgid "Select at least one part to apply"
+msgstr ""
+
+#: orbits/ui/looks_page.py:228
+msgid "Export Community Gallery Bundle"
+msgstr ""
+
+#: orbits/ui/looks_page.py:235
+#, python-brace-format
+msgid ""
+"Saved Look, screenshot and {value0}; share the folder or host it over HTTPS"
+msgstr ""
+
+#: orbits/ui/looks_page.py:240
+msgid "Rename Look"
+msgstr ""
+
+#: orbits/ui/looks_page.py:244
+msgid "Rename"
+msgstr ""
+
+#: orbits/ui/looks_page.py:251
+#, python-brace-format
+msgid "Delete “{value0}”?"
+msgstr ""
+
+#: orbits/ui/looks_page.py:251
+msgid "Installed themes and fonts stay."
+msgstr ""
+
+#: orbits/ui/looks_page.py:260
+msgid "Export Look"
+msgstr ""
+
+#: orbits/ui/looks_page.py:270
+#, python-brace-format
+msgid "Exported to {value0}"
+msgstr ""
+
+#: orbits/ui/looks_page.py:272
+#, python-brace-format
+msgid "Export failed: {value0}"
+msgstr ""
+
+#: orbits/ui/looks_page.py:281
+msgid "Import Look"
+msgstr ""
+
+#: orbits/ui/looks_page.py:297
+#, python-brace-format
+msgid "Couldn't import: {value0}"
+msgstr ""
+
+#: orbits/ui/looks_page.py:299
+#, python-brace-format
+msgid "Imported “{value0}”"
+msgstr ""
+
+#: orbits/ui/preferences.py:78 orbits/ui/window.py:148
+msgid "Preferences"
+msgstr ""
+
+#: orbits/ui/preferences.py:85
+msgid "General"
+msgstr ""
+
+#: orbits/ui/preferences.py:87
+msgid "Network"
+msgstr ""
+
+#: orbits/ui/preferences.py:87
+msgid "Cached catalogues and installed items remain available offline."
+msgstr ""
+
+#: orbits/ui/preferences.py:88
+msgid "Offline Mode"
+msgstr ""
+
+#: orbits/ui/preferences.py:88
+msgid "Use cached catalogues without making network requests"
+msgstr ""
+
+#: orbits/ui/preferences.py:91
+msgid "Where installed wallpapers are stored on disk."
+msgstr ""
+
+#: orbits/ui/preferences.py:92
+msgid "Download Location"
+msgstr ""
+
+#: orbits/ui/preferences.py:95
+msgid "Change…"
+msgstr ""
+
+#: orbits/ui/preferences.py:98
+msgid "Open Folder"
+msgstr ""
+
+#: orbits/ui/preferences.py:104
+msgid "Use Default Location"
+msgstr ""
+
+#: orbits/ui/preferences.py:111
+msgid "Show in GNOME Settings"
+msgstr ""
+
+#: orbits/ui/preferences.py:112
+msgid "List installed wallpapers under Settings → Appearance"
+msgstr ""
+
+#: orbits/ui/preferences.py:114 orbits/ui/wallpaper_tools.py:111
+msgid "Also Set Lock Screen"
+msgstr ""
+
+#: orbits/ui/preferences.py:115
+msgid "“Set as Wallpaper” updates the lock screen background too"
+msgstr ""
+
+#: orbits/ui/preferences.py:117
+msgid "Start Page"
+msgstr ""
+
+#: orbits/ui/preferences.py:117
+msgid "Shown when Orbits opens"
+msgstr ""
+
+#: orbits/ui/preferences.py:126
+msgid "Show Welcome Tour"
+msgstr ""
+
+#: orbits/ui/preferences.py:133
+msgid "Choose Download Location"
+msgstr ""
+
+#: orbits/ui/preferences.py:155
+msgid "Move Existing Wallpapers?"
+msgstr ""
+
+#: orbits/ui/preferences.py:156
+#, python-brace-format
+msgid ""
+"{value0} installed wallpapers are in\n"
+"{value1}\n"
+"\n"
+"Move them to the new location, or leave them where they are?"
+msgstr ""
+
+#: orbits/ui/preferences.py:157
+msgid "Leave Them"
+msgstr ""
+
+#: orbits/ui/preferences.py:158
+msgid "Move"
+msgstr ""
+
+#: orbits/ui/preferences.py:166
+#, python-brace-format
+msgid "Moved {value0} wallpapers"
+msgstr ""
+
+#: orbits/ui/preferences.py:168
+#, python-brace-format
+msgid "Could not move wallpapers: {value0}"
+msgstr ""
+
+#: orbits/ui/preferences.py:180
+msgid "Sources"
+msgstr ""
+
+#: orbits/ui/preferences.py:182
+msgid "KDE Store"
+msgstr ""
+
+#: orbits/ui/preferences.py:183
+msgid "Results per Page"
+msgstr ""
+
+#: orbits/ui/preferences.py:187
+msgid "Wallhaven"
+msgstr ""
+
+#: orbits/ui/preferences.py:188
+msgid "Minimum Resolution"
+msgstr ""
+
+#: orbits/ui/preferences.py:188
+msgid "Hide wallpapers smaller than this"
+msgstr ""
+
+#: orbits/ui/preferences.py:189
+msgid "“Top” Time Range"
+msgstr ""
+
+#: orbits/ui/preferences.py:190
+msgid "API Key (optional)"
+msgstr ""
+
+#: orbits/ui/preferences.py:194
+msgid "Color filter (#RRGGBB; blank for any)"
+msgstr ""
+
+#: orbits/ui/preferences.py:200
+msgid "Use a six-digit hex color"
+msgstr ""
+
+#: orbits/ui/preferences.py:207
+msgid "Additional Sources"
+msgstr ""
+
+#: orbits/ui/preferences.py:213
+msgid ""
+"Openverse includes license and attribution details. Reddit tokens expire; "
+"renew them here."
+msgstr ""
+
+#: orbits/ui/preferences.py:216
+msgid "Changes take effect the next time a page is refreshed."
+msgstr ""
+
+#: orbits/ui/preferences.py:222
+msgid "Storage"
+msgstr ""
+
+#: orbits/ui/preferences.py:223
+msgid "Thumbnail Cache"
+msgstr ""
+
+#: orbits/ui/preferences.py:224
+msgid "Previews downloaded while browsing. Safe to clear."
+msgstr ""
+
+#: orbits/ui/preferences.py:225
+msgid "Cache Size"
+msgstr ""
+
+#: orbits/ui/preferences.py:230
+msgid "Maximum Cache Size"
+msgstr ""
+
+#: orbits/ui/preferences.py:230
+msgid "Oldest previews are removed past this limit"
+msgstr ""
+
+#: orbits/ui/preferences.py:238
+msgid "Installed Wallpapers"
+msgstr ""
+
+#: orbits/ui/preferences.py:238
+#, python-brace-format
+msgid "{value0} items · {value1}"
+msgstr ""
+
+#: orbits/ui/preferences.py:247
+msgid "Thumbnail cache cleared"
+msgstr ""
+
+#: orbits/ui/system_check.py:15 orbits/ui/window.py:149
+msgid "System Check"
+msgstr ""
+
+#: orbits/ui/system_check.py:30
+msgid "Couldn't check this system"
+msgstr ""
+
+#: orbits/ui/themes_page.py:35
+msgid "● Current"
+msgstr ""
+
+#: orbits/ui/themes_page.py:180
+msgid "Theme Actions"
+msgstr ""
+
+#: orbits/ui/themes_page.py:230
+msgid "Rescan"
+msgstr ""
+
+#: orbits/ui/themes_page.py:233
+msgid "Install from File…"
+msgstr ""
+
+#: orbits/ui/themes_page.py:311
+msgid ""
+"Legacy themes use a separate GTK rc file; restart older apps after applying. "
+"Some themes require GTK engines supplied by your distribution."
+msgstr ""
+
+#: orbits/ui/themes_page.py:313
+msgid ""
+"Sets GNOME's event-sound theme and enables event sounds. Applications must "
+"support sound themes to use it."
+msgstr ""
+
+#: orbits/ui/themes_page.py:315
+msgid ""
+"Imports Konsole, Ptyxis, Kitty, Alacritty, iTerm and terminal.sexy palettes "
+"as data. Export for your terminal; downloaded scripts are never executed."
+msgstr ""
+
+#: orbits/ui/themes_page.py:318
+msgid "Also Theme Libadwaita Apps"
+msgstr ""
+
+#: orbits/ui/themes_page.py:319
+msgid ""
+"Links the theme's GTK4 stylesheet into ~/.config/gtk-4.0. Restart apps to "
+"see it. Some themes may look off in newer apps."
+msgstr ""
+
+#: orbits/ui/themes_page.py:325
+msgid "Broken libadwaita theme link"
+msgstr ""
+
+#: orbits/ui/themes_page.py:326
+#, python-brace-format
+msgid "~/.config/gtk-4.0 points to “{value0}”, which no longer exists"
+msgstr ""
+
+#: orbits/ui/themes_page.py:328
+msgid "Clean Up"
+msgstr ""
+
+#: orbits/ui/themes_page.py:330
+msgid "Removed broken links from ~/.config/gtk-4.0"
+msgstr ""
+
+#: orbits/ui/themes_page.py:334
+msgid "Libadwaita theme"
+msgstr ""
+
+#: orbits/ui/themes_page.py:337
+msgid "User Themes extension"
+msgstr ""
+
+#: orbits/ui/themes_page.py:347
+msgid ""
+"Boot splashes are system-wide. Applying one rebuilds your initramfs, which "
+"takes about a minute and asks for your password."
+msgstr ""
+
+#: orbits/ui/themes_page.py:350
+msgid ""
+"Themes installed just for you don't show on the login screen; use “Install "
+"for All Users” for that."
+msgstr ""
+
+#: orbits/ui/themes_page.py:374
+#, python-brace-format
+msgid "{value0} installed · current: {value1}"
+msgstr ""
+
+#: orbits/ui/themes_page.py:375
+#, python-brace-format
+msgid "{value0} set to “{value1}”"
+msgstr ""
+
+#: orbits/ui/themes_page.py:382
+#, python-brace-format
+msgid "“{value0}” has no GTK4 version — libadwaita apps use their default look"
+msgstr ""
+
+#: orbits/ui/themes_page.py:390
+#, python-brace-format
+msgid "The current theme ({value0}) has no GTK4 stylesheet"
+msgstr ""
+
+#: orbits/ui/themes_page.py:396
+msgid "Libadwaita apps restored to their default look"
+msgstr ""
+
+#: orbits/ui/themes_page.py:417
+#, python-brace-format
+msgid "Theme Health: {value0}"
+msgstr ""
+
+#: orbits/ui/themes_page.py:421
+msgid "Use Anyway"
+msgstr ""
+
+#: orbits/ui/themes_page.py:429
+msgid "Libadwaita apps will use the theme after they restart"
+msgstr ""
+
+#: orbits/ui/themes_page.py:444
+#, python-brace-format
+msgid "Export {value0} for Your Terminal"
+msgstr ""
+
+#: orbits/ui/themes_page.py:454
+msgid ""
+"Exported Kitty, Alacritty and Ptyxis color files — import one in your "
+"terminal"
+msgstr ""
+
+#: orbits/ui/themes_page.py:463
+msgid "Plymouth preview needs X11/XWayland and a readable Xauthority file"
+msgstr ""
+
+#: orbits/ui/themes_page.py:472
+#, python-brace-format
+msgid "Use “{value0}” at Boot?"
+msgstr ""
+
+#: orbits/ui/themes_page.py:473
+msgid ""
+"Orbits will set the Plymouth theme and rebuild your initramfs. This takes "
+"about a minute and requires your password."
+msgstr ""
+
+#: orbits/ui/themes_page.py:476
+msgid "Preview First"
+msgstr ""
+
+#: orbits/ui/themes_page.py:477
+msgid "Set Boot Splash"
+msgstr ""
+
+#: orbits/ui/themes_page.py:521
+#, python-brace-format
+msgid "Remove “{value0}” for All Users?"
+msgstr ""
+
+#: orbits/ui/themes_page.py:521
+msgid "Requires your password."
+msgstr ""
+
+#: orbits/ui/themes_page.py:531
+#, python-brace-format
+msgid "Deletes {value0}"
+msgstr ""
+
+#: orbits/ui/themes_page.py:555
+msgid "Installed theme not found — try Rescan"
+msgstr ""
+
+#: orbits/ui/themes_page.py:558
+#, python-brace-format
+msgid "Selected “{value0}” — {value1} more variants are in the Installed tab"
+msgstr ""
+
+#: orbits/ui/themes_page.py:567
+#, python-brace-format
+msgid "Install {value0} from File"
+msgstr ""
+
+#: orbits/ui/updates_page.py:37
+msgid "Updates"
+msgstr ""
+
+#: orbits/ui/updates_page.py:37
+msgid "Wallpapers, themes & fonts"
+msgstr ""
+
+#: orbits/ui/updates_page.py:38
+msgid "Check for Updates"
+msgstr ""
+
+#: orbits/ui/updates_page.py:41
+msgid "Update All"
+msgstr ""
+
+#: orbits/ui/updates_page.py:46
+msgid "Everything Is Up to Date"
+msgstr ""
+
+#: orbits/ui/updates_page.py:48
+msgid "Check Now"
+msgstr ""
+
+#: orbits/ui/updates_page.py:52
+msgid "Checking for Updates…"
+msgstr ""
+
+#: orbits/ui/updates_page.py:61
+msgid "Check Automatically"
+msgstr ""
+
+#: orbits/ui/updates_page.py:61
+msgid "Once a day, a few seconds after Orbits starts"
+msgstr ""
+
+#: orbits/ui/updates_page.py:97 orbits/ui/window.py:188
+#, python-brace-format
+msgid "{value0} update{value1} available"
+msgstr ""
+
+#: orbits/ui/updates_page.py:101
+#, python-brace-format
+msgid "{value0} · updated {value1} · installed {value2}"
+msgstr ""
+
+#: orbits/ui/updates_page.py:111
+msgid "Update"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:15
+msgid "Open"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:58
+msgid "Library Tools"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:70
+msgid "Checking wallpaper contents…"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:79
+#, python-brace-format
+msgid "{value0} Duplicate Groups"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:80
+msgid "Close"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:90
+msgid "Requires systemd user services. Rotation runs while Orbits is closed."
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:91
+msgid "Enable Rotation"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:93
+msgid "Daily at Midnight"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:97
+msgid "Wallpaper Selection"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:101
+msgid "Selection"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:103
+msgid "Favorites Only"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:107
+msgid "Search Source"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:139
+msgid "No wallpapers match this selection"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:144
+msgid "Wallpaper rotated"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:167
+msgid "Time-of-Day Wallpaper"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:172
+msgid "Frames"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:172
+msgid ""
+"Start with 00:00. Each frame lasts until the next; the schedule repeats "
+"daily."
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:185
+#, python-brace-format
+msgid "Frame {value0}"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:209
+msgid "Per-Monitor Wallpapers"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:215
+msgid "Monitor Layout"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:215
+msgid ""
+"Use logical positions from Displays settings. Mirrored monitors share the "
+"same wallpaper."
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:232
+msgid "Import some wallpapers first"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:258
+msgid "Edit Wallpaper"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:270
+msgid "Effects"
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:270
+msgid "A new image is saved to your Library; the original stays available."
+msgstr ""
+
+#: orbits/ui/wallpaper_tools.py:274
+msgid "Tint Color"
+msgstr ""
+
+#: orbits/ui/welcome.py:81
+msgid "Skip"
+msgstr ""
+
+#: orbits/ui/window.py:11 orbits/ui/window.py:161
+msgid "Orbits"
+msgstr ""
+
+#: orbits/ui/window.py:146
+msgid "Search Everywhere"
+msgstr ""
+
+#: orbits/ui/window.py:150
+msgid "Welcome Tour"
+msgstr ""
+
+#: orbits/ui/window.py:151
+msgid "About Orbits"
+msgstr ""
+
+#: orbits/ui/window.py:152
+msgid "Search Everywhere (Ctrl+K)"
+msgstr ""
+
+#: orbits/ui/window.py:155
+msgid "Main Menu"
+msgstr ""
+
+#: orbits/ui/window.py:162
+msgid "Explore"
+msgstr ""

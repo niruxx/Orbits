@@ -166,5 +166,19 @@ class ThemeDetectionTests(unittest.TestCase):
         self.assertEqual(found, ["Pack-Dark", "Pack-Light"])
 
 
+
+class BootDetectionTests(unittest.TestCase):
+    def test_classify_and_archive_names(self):
+        from orbits import boot
+
+        self.assertEqual(boot._classify("rEFInd Boot Manager", r"\EFI\refind\refind_x64.efi"), "refind")
+        self.assertEqual(boot._classify("ubuntu", r"\EFI\ubuntu\shimx64.efi"), "grub")
+        self.assertEqual(boot._classify("Linux Boot Manager", r"\EFI\systemd\systemd-bootx64.efi"), "systemd-boot")
+        root = Path(tempfile.mkdtemp(prefix="orbits-test-boot-"))
+        (root / "rEFInd-minimal-main").mkdir()
+        (root / "rEFInd-minimal-main" / "theme.conf").write_text("")
+        self.assertEqual([n for _, n in boot.find_boot_themes(root, "refind", "x")], ["rEFInd-minimal"])
+
+
 if __name__ == "__main__":
     unittest.main()

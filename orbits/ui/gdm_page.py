@@ -1,13 +1,17 @@
 """Login Screen (GDM) customization page."""
+from orbits.i18n import _ as tr
 import os
 import shutil
+import copy
+import tempfile
 from pathlib import Path
 
 from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
 from orbits.gdm import model as gm
 from orbits.library import IMAGE_EXTS, get_library
-from orbits.ui.gdm_preview import GdmPreview, export_background
+from orbits.ui.gdm_preview import GdmPreview
+from orbits.gdm.backgrounds import render_backgrounds
 from orbits import net
 from orbits.ui.widgets import CoverPicture, local_thumbnail
 
@@ -40,12 +44,15 @@ class GdmPage(Adw.Bin):
         self._syncing = False
         self._rows_by_key = {}
 
-        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Login Screen",
-                                                            subtitle="Customize GDM & the lock screen"))
+        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title=tr("Login Screen"),
+                                                            subtitle=tr("Customize GDM & the lock screen")))
         menu = Gio.Menu()
-        menu.append("Reset Everything to Defaults…", "gdm.reset")
-        menu.append("Open Theme Backup Folder", "gdm.backup")
-        header.pack_end(Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, tooltip_text="More"))
+        menu.append(tr("Reset Everything to Defaults…"), "gdm.reset")
+        menu.append(tr("Open Theme Backup Folder"), "gdm.backup")
+        self.greeter_btn = Gtk.Button(label=tr("Preview Greeter"), tooltip_text=tr("Open the real greeter in a nested window"))
+        self.greeter_btn.connect("clicked", lambda *_: self._preview_greeter())
+        header.pack_start(self.greeter_btn)
+        header.pack_end(Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, tooltip_text=tr("More")))
         group = Gio.SimpleActionGroup()
         for name, cb in [("reset", self._confirm_reset), ("backup", self._open_backup)]:
             a = Gio.SimpleAction.new(name, None)
@@ -61,18 +68,18 @@ class GdmPage(Adw.Bin):
         self.preview = GdmPreview(self.model)
         frame = Adw.Clamp(maximum_size=780, child=self.preview)
         mode_toggle = Adw.ToggleGroup(halign=Gtk.Align.CENTER, css_classes=["round"])
-        mode_toggle.add(Adw.Toggle(name="login", label="Login Screen"))
-        mode_toggle.add(Adw.Toggle(name="lock", label="Lock Screen"))
+        mode_toggle.add(Adw.Toggle(name="login", label=tr("Login Screen")))
+        mode_toggle.add(Adw.Toggle(name="lock", label=tr("Lock Screen")))
         mode_toggle.set_active_name("login")
         mode_toggle.connect("notify::active-name", lambda t, _p: self.preview.set_mode(t.get_active_name()))
 
         # ---- settings tabs
         self.stack = Adw.ViewStack(vhomogeneous=False)
-        self._add_tab("background", "Background", "preferences-desktop-wallpaper-symbolic", self._background_tab())
-        self._add_tab("style", "Style", "preferences-desktop-appearance-symbolic", self._style_tab())
-        self._add_tab("clock", "Clock", "preferences-system-time-symbolic", self._clock_tab())
-        self._add_tab("login", "Login", "system-users-symbolic", self._login_tab())
-        self._add_tab("system", "System", "preferences-system-symbolic", self._system_tab())
+        self._add_tab("background", tr("Background"), "preferences-desktop-wallpaper-symbolic", self._background_tab())
+        self._add_tab("style", tr("Style"), "preferences-desktop-appearance-symbolic", self._style_tab())
+        self._add_tab("clock", tr("Clock"), "preferences-system-time-symbolic", self._clock_tab())
+        self._add_tab("login", tr("Login"), "system-users-symbolic", self._login_tab())
+        self._add_tab("system", tr("System"), "preferences-system-symbolic", self._system_tab())
         switcher = Adw.InlineViewSwitcher(stack=self.stack, halign=Gtk.Align.CENTER, margin_top=12,
                                           display_mode=Adw.InlineViewSwitcherDisplayMode.BOTH)
 
@@ -92,14 +99,14 @@ class GdmPage(Adw.Bin):
                                 css_classes=["dim-label"])
         bar.append(self.status_icon)
         bar.append(self.status)
-        self.revert_btn = Gtk.Button(label="Revert", css_classes=["pill", "flat"], sensitive=False)
+        self.revert_btn = Gtk.Button(label=tr("Revert"), css_classes=["pill", "flat"], sensitive=False)
         self.revert_btn.connect("clicked", lambda *_: self._revert())
         bar.append(self.revert_btn)
         self.apply_btn = Gtk.Button(css_classes=["pill", "suggested-action"])
         self.apply_spinner = Adw.Spinner(visible=False)
         apply_box = Gtk.Box(spacing=8)
         apply_box.append(self.apply_spinner)
-        apply_box.append(Gtk.Label(label="Apply"))
+        apply_box.append(Gtk.Label(label=tr("Apply")))
         self.apply_btn.set_child(apply_box)
         self.apply_btn.connect("clicked", lambda *_: self.apply())
         bar.append(self.apply_btn)
@@ -125,92 +132,136 @@ class GdmPage(Adw.Bin):
         return box
 
     def _background_tab(self):
-        g = Adw.PreferencesGroup(title="Login Background",
-                                 description="Shown behind the GDM login dialog.")
-        self.mode_row = self._combo("bg_mode", "Type", BG_MODES)
+        g = Adw.PreferencesGroup(title=tr("Login Background"),
+                                 description=tr("Shown behind the GDM login dialog."))
+        self.mode_row = self._combo("bg_mode", tr("Type"), BG_MODES)
         g.add(self.mode_row)
 
-        self.image_row = Adw.ActionRow(title="Image", subtitle="No image selected")
+        self.image_row = Adw.ActionRow(title=tr("Image"), subtitle=tr("No image selected"))
         self.image_thumb = CoverPicture(72, 44, css_classes=["card"], valign=Gtk.Align.CENTER)
         self.image_row.add_prefix(self.image_thumb)
-        lib_btn = Gtk.MenuButton(icon_name="folder-pictures-symbolic", tooltip_text="Choose from Library",
+        lib_btn = Gtk.MenuButton(icon_name="folder-pictures-symbolic", tooltip_text=tr("Choose from Library"),
                                  valign=Gtk.Align.CENTER, css_classes=["flat"])
         self.lib_popover = Gtk.Popover()
         self.lib_popover.connect("show", lambda *_: self._fill_library_popover())
         lib_btn.set_popover(self.lib_popover)
-        file_btn = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+        file_btn = Gtk.Button(label=tr("Choose…"), valign=Gtk.Align.CENTER)
         file_btn.connect("clicked", lambda *_: self._choose_image("bg_image"))
         self.image_row.add_suffix(lib_btn)
         self.image_row.add_suffix(file_btn)
         g.add(self.image_row)
-        self.blur_row = self._scale("bg_blur", "Blur", "Soften the image", 0, 100, 1)
-        self.dim_row = self._scale("bg_dim", "Dim", "Darken for better contrast", 0, 90, 1)
+        self.blur_row = self._scale("bg_blur", tr("Blur"), tr("Soften the image"), 0, 100, 1)
+        self.dim_row = self._scale("bg_dim", tr("Dim"), tr("Darken for better contrast"), 0, 90, 1)
         g.add(self.blur_row)
         g.add(self.dim_row)
 
         self.color_row = self._color("bg_color", "Color")
         self.color2_row = self._color("bg_color2", "Second Color")
-        self.dir_row = self._combo("bg_gradient", "Direction", [("vertical", "Vertical"), ("horizontal", "Horizontal")])
+        self.dir_row = self._combo("bg_gradient", tr("Direction"), [("vertical", "Vertical"), ("horizontal", "Horizontal")])
         for r in (self.color_row, self.color2_row, self.dir_row):
             g.add(r)
-        return self._tab_box(g)
+        self.variant_rows = []
+        for variant in ("light", "dark"):
+            key = f"bg_image_{variant}"
+            row = Adw.ActionRow(title=tr('{value0} Background').format(value0=variant.title()))
+            choose = Gtk.Button(label=tr("Choose…"), valign=Gtk.Align.CENTER)
+            choose.connect("clicked", lambda _b, k=key: self._choose_image(k))
+            clear = Gtk.Button(icon_name="edit-clear-symbolic", tooltip_text=tr("Use the main image"),
+                               valign=Gtk.Align.CENTER, css_classes=["flat"])
+            clear.connect("clicked", lambda _b, k=key: self._set(k, ""))
+            row.add_suffix(clear)
+            row.add_suffix(choose)
+            g.add(row)
+            self.variant_rows.append((key, row))
+        monitors = Adw.PreferencesGroup(title=tr("Per-monitor Backgrounds"),
+            description=tr("Compose images for the current display layout. GDM must use the same layout; "
+                        "reapply after changing Displays settings. Empty choices use the global images."))
+        row = Adw.ActionRow(title=tr("Display Layout"))
+        configure = Gtk.Button(label=tr("Configure…"), valign=Gtk.Align.CENTER)
+        configure.connect("clicked", lambda *_: self._configure_monitors())
+        clear = Gtk.Button(label=tr("Clear"), valign=Gtk.Align.CENTER)
+        clear.connect("clicked", lambda *_: self._set("bg_monitors", []))
+        row.add_suffix(clear)
+        row.add_suffix(configure)
+        monitors.add(row)
+        self.monitor_group = monitors
+        return self._tab_box(g, monitors)
 
     def _style_tab(self):
-        g = Adw.PreferencesGroup(title="Appearance")
+        g = Adw.PreferencesGroup(title=tr("Appearance"))
         if self.model.has("color_scheme"):
             dk = self.model.dkey("color_scheme")
-            g.add(self._combo("color_scheme", "Style", [(v, _pretty(v)) for v in gm.enum_choices(dk)]))
+            g.add(self._combo("color_scheme", tr("Style"), [(v, _pretty(v)) for v in gm.enum_choices(dk)]))
         if self.model.has("accent_color"):
             g.add(self._accent_row())
-        g.add(self._optional_color("text_color", "Custom Text Color", "Login dialog and lock screen clock"))
+        panel = Adw.ExpanderRow(title=tr("Custom Panel Opacity"), show_enable_switch=True,
+                                 enable_expansion=self.model.get("panel_opacity", -1) >= 0)
+        panel.add_row(self._scale("panel_opacity", tr("Opacity"), tr("0 is transparent; 100 is opaque"), 0, 100, 1))
+        panel.connect("notify::enable-expansion", self._panel_toggled)
+        self._register("panel_opacity_enabled", panel, lambda v: panel.set_enable_expansion(self.model.get("panel_opacity", -1) >= 0))
+        g.add(panel)
+        g.add(self._optional_color("text_color", tr("Custom Text Color"), tr("Login dialog and lock screen clock")))
 
-        t = Adw.PreferencesGroup(title="Themes &amp; Fonts",
-                                 description="Only themes installed system-wide (in /usr/share) are available to GDM.")
+        t = Adw.PreferencesGroup(title=tr("Themes &amp; Fonts"),
+                                 description=tr("Only themes installed system-wide (in /usr/share) are available to GDM."))
         if self.model.has("font_name"):
-            t.add(self._font("font_name", "Interface Font"))
+            t.add(self._font("font_name", tr("Interface Font")))
         if self.model.has("text_scaling"):
-            t.add(self._spin("text_scaling", "Text Scaling", 0.5, 3.0, 0.05, 2))
+            t.add(self._spin("text_scaling", tr("Text Scaling"), 0.5, 3.0, 0.05, 2))
         if self.model.has("icon_theme"):
-            t.add(self._combo("icon_theme", "Icon Theme", [(n, n) for n in gm.icon_themes()]))
+            t.add(self._combo("icon_theme", tr("Icon Theme"), [(n, n) for n in gm.icon_themes()]))
         if self.model.has("cursor_theme"):
-            t.add(self._combo("cursor_theme", "Cursor Theme", [(n, n) for n in gm.cursor_themes()]))
+            t.add(self._combo("cursor_theme", tr("Cursor Theme"), [(n, n) for n in gm.cursor_themes()]))
         if self.model.has("cursor_size"):
-            t.add(self._combo("cursor_size", "Cursor Size", [(n, f"{n} px") for n in CURSOR_SIZES]))
+            t.add(self._combo("cursor_size", tr("Cursor Size"), [(n, f"{n} px") for n in CURSOR_SIZES]))
         if self.model.has("enable_animations"):
-            t.add(self._switch("enable_animations", "Animations"))
+            t.add(self._switch("enable_animations", tr("Animations")))
         return self._tab_box(g, t)
 
+    def _panel_toggled(self, row, _param):
+        if self._syncing:
+            return
+        value = 100 if row.get_enable_expansion() else -1
+        self._set("panel_opacity", value)
+        if value >= 0:
+            self._rows_by_key["panel_opacity"][1](value)
+
     def _clock_tab(self):
-        g = Adw.PreferencesGroup(title="Top Bar")
+        g = Adw.PreferencesGroup(title=tr("Top Bar"))
         if self.model.has("clock_format"):
-            g.add(self._combo("clock_format", "Time Format", [("24h", "24-hour"), ("12h", "AM / PM")]))
+            g.add(self._combo("clock_format", tr("Time Format"), [("24h", "24-hour"), ("12h", "AM / PM")]))
         for key, title in [("clock_show_date", "Show Date"), ("clock_show_weekday", "Show Weekday"),
                            ("clock_show_seconds", "Show Seconds"),
                            ("show_battery_percentage", "Show Battery Percentage")]:
             if self.model.has(key):
                 g.add(self._switch(key, title))
 
-        lock = Adw.PreferencesGroup(title="Lock Screen Clock",
-                                    description="Applies to the big clock on the lock screen. "
-                                                "Switch the preview to “Lock Screen” to see it.")
+        lock = Adw.PreferencesGroup(title=tr("Lock Screen Clock"),
+                                    description=tr("Applies to the big clock on the lock screen. "
+                                                "Switch the preview to “Lock Screen” to see it."))
         self.clock_size_row = Adw.SpinRow.new_with_range(3.0, 14.0, 0.25)
-        self.clock_size_row.set_title("Size")
-        self.clock_size_row.set_subtitle("In em — GNOME's default is 6.5")
+        self.clock_size_row.set_title(tr("Size"))
+        self.clock_size_row.set_subtitle(tr("In em — GNOME's default is 6.5"))
         self.clock_size_row.set_digits(2)
         self.clock_size_row.set_value(self.model.get("clock_size") or 6.5)
         self.clock_size_row.connect("notify::value", lambda r, _p: self._custom_clock_changed())
-        self.clock_weight_row = Adw.ComboRow(title="Weight", model=Gtk.StringList.new(
+        self.clock_weight_row = Adw.ComboRow(title=tr("Weight"), model=Gtk.StringList.new(
             ["Thin", "Light", "Regular", "Medium", "Bold", "Heavy", "Black"]))
         self._weights = [200, 300, 400, 500, 700, 800, 900]
         w = self.model.get("clock_weight") or 800
         self.clock_weight_row.set_selected(self._weights.index(w) if w in self._weights else 5)
         self.clock_weight_row.connect("notify::selected", lambda *_: self._custom_clock_changed())
-        self.clock_expander = Adw.ExpanderRow(title="Custom Clock Style", show_enable_switch=True,
+        self.clock_expander = Adw.ExpanderRow(title=tr("Custom Clock Style"), show_enable_switch=True,
                                               enable_expansion=bool(self.model.get("clock_size")))
         self.clock_expander.add_row(self.clock_size_row)
         self.clock_expander.add_row(self.clock_weight_row)
         self.clock_expander.connect("notify::enable-expansion", lambda *_: self._custom_clock_changed())
         lock.add(self.clock_expander)
+        font = Adw.EntryRow(title=tr("Clock Font Family"), text=self.model.get("clock_font") or "",
+                            tooltip_text=tr("Use a system-wide font family; leave empty for the default"))
+        font.connect("changed", lambda r: self._set("clock_font", r.get_text()))
+        self._register("clock_font", font, lambda v: font.set_text(v or ""))
+        lock.add(font)
         return self._tab_box(g, lock)
 
     def _custom_clock_changed(self):
@@ -225,24 +276,24 @@ class GdmPage(Adw.Bin):
         self._changed()
 
     def _login_tab(self):
-        g = Adw.PreferencesGroup(title="Branding")
-        self.logo_row = Adw.ActionRow(title="Logo", subtitle="Shown at the bottom of the login screen")
+        g = Adw.PreferencesGroup(title=tr("Branding"))
+        self.logo_row = Adw.ActionRow(title=tr("Logo"), subtitle=tr("Shown at the bottom of the login screen"))
         self.logo_thumb = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, width_request=72, height_request=40,
                                       valign=Gtk.Align.CENTER)
         self.logo_row.add_prefix(self.logo_thumb)
         clear = Gtk.Button(icon_name="edit-clear-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
-                           tooltip_text="Remove Logo")
+                           tooltip_text=tr("Remove Logo"))
         clear.connect("clicked", lambda *_: (self.model.set("logo", ""), self._changed()))
-        choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+        choose = Gtk.Button(label=tr("Choose…"), valign=Gtk.Align.CENTER)
         choose.connect("clicked", lambda *_: self._choose_image("logo"))
         self.logo_row.add_suffix(clear)
         self.logo_row.add_suffix(choose)
         g.add(self.logo_row)
 
         if self.model.has("banner_enable"):
-            exp = Adw.ExpanderRow(title="Welcome Message", subtitle="Text shown above the login prompt",
+            exp = Adw.ExpanderRow(title=tr("Welcome Message"), subtitle=tr("Text shown above the login prompt"),
                                   show_enable_switch=True, enable_expansion=bool(self.model.get("banner_enable")))
-            text = Adw.EntryRow(title="Message", text=self.model.get("banner_text") or "")
+            text = Adw.EntryRow(title=tr("Message"), text=self.model.get("banner_text") or "")
             text.connect("changed", lambda e: self._set("banner_text", e.get_text()))
             exp.add_row(text)
             exp.connect("notify::enable-expansion", lambda e, _p: self._set("banner_enable", e.get_enable_expansion()))
@@ -250,25 +301,25 @@ class GdmPage(Adw.Bin):
             self._rows_by_key["banner_text"] = (text, lambda v: text.set_text(v or ""))
             g.add(exp)
 
-        b = Adw.PreferencesGroup(title="Behaviour")
+        b = Adw.PreferencesGroup(title=tr("Behaviour"))
         for key, title, sub in [("disable_user_list", "Hide User List", "Users must type their username"),
                                 ("disable_restart_buttons", "Hide Power Buttons",
                                  "Remove restart and shut down from the login screen")]:
             if self.model.has(key):
                 b.add(self._switch(key, title, sub))
 
-        auth = Adw.PreferencesGroup(title="Authentication Methods")
+        auth = Adw.PreferencesGroup(title=tr("Authentication Methods"))
         for key, title in [("password_auth", "Password"), ("fingerprint_auth", "Fingerprint"),
                            ("smartcard_auth", "Smart Card")]:
             if self.model.has(key):
                 auth.add(self._switch(key, title))
 
-        auto = Adw.PreferencesGroup(title="Automatic Login",
-                                    description="Skips the login screen entirely on boot. Use with care.")
+        auto = Adw.PreferencesGroup(title=tr("Automatic Login"),
+                                    description=tr("Skips the login screen entirely on boot. Use with care."))
         users = gm.login_users()
-        self.auto_exp = Adw.ExpanderRow(title="Log In Automatically", show_enable_switch=True,
+        self.auto_exp = Adw.ExpanderRow(title=tr("Log In Automatically"), show_enable_switch=True,
                                         enable_expansion=bool(self.model.get("autologin_enable")))
-        user_row = Adw.ComboRow(title="User", model=Gtk.StringList.new([f"{full} ({u})" if full != u else u
+        user_row = Adw.ComboRow(title=tr("User"), model=Gtk.StringList.new([f"{full} ({u})" if full != u else u
                                                                          for u, full in users]))
         names = [u for u, _ in users]
         cur = self.model.get("autologin_user")
@@ -286,30 +337,34 @@ class GdmPage(Adw.Bin):
         self.auto_exp.connect("notify::enable-expansion",
                               lambda e, _p: self._set("autologin_enable", e.get_enable_expansion()))
         auto.add(self.auto_exp)
-        auto.add(self._switch("wayland", "Use Wayland", "Turn off to force the X11 login screen"))
+        auto.add(self._switch("wayland", tr("Use Wayland"), tr("Turn off to force the X11 login screen")))
         return self._tab_box(g, b, auth, auto)
 
     def _system_tab(self):
-        tp = Adw.PreferencesGroup(title="Touchpad &amp; Mouse")
+        tp = Adw.PreferencesGroup(title=tr("Touchpad &amp; Mouse"))
         for key, title in [("tap_to_click", "Tap to Click"), ("natural_scroll", "Natural Scrolling")]:
             if self.model.has(key):
                 tp.add(self._switch(key, title))
         if self.model.has("mouse_speed"):
-            tp.add(self._scale("mouse_speed", "Mouse Speed", None, -1.0, 1.0, 0.05, digits=2))
+            tp.add(self._scale("mouse_speed", tr("Mouse Speed"), None, -1.0, 1.0, 0.05, digits=2))
 
-        pw = Adw.PreferencesGroup(title="Power")
+        pw = Adw.PreferencesGroup(title=tr("Power"))
         for key, title in [("power_button", "Power Button Action"), ("sleep_ac", "When Idle (Plugged In)"),
                            ("sleep_battery", "When Idle (On Battery)")]:
             if self.model.has(key):
                 pw.add(self._combo(key, title, [(v, _pretty(v)) for v in gm.enum_choices(self.model.dkey(key))]))
         if self.model.has("night_light"):
-            pw.add(self._switch("night_light", "Night Light"))
+            pw.add(self._switch("night_light", tr("Night Light")))
 
-        a11y = Adw.PreferencesGroup(title="Accessibility")
+        a11y = Adw.PreferencesGroup(title=tr("Accessibility"))
         for key, title in [("screen_keyboard", "Screen Keyboard"), ("screen_reader", "Screen Reader")]:
             if self.model.has(key):
                 a11y.add(self._switch(key, title))
-        return self._tab_box(tp, pw, a11y)
+        updates = Adw.PreferencesGroup(title=tr("System Updates"),
+            description=tr("Keep the applied login theme after package updates. Uses pacman/apt hooks "
+                        "and a systemd watcher for DNF/RPM updates. Enabling or disabling takes effect on Apply."))
+        updates.add(self._switch("auto_reapply", tr("Reapply Theme After Updates")))
+        return self._tab_box(tp, pw, a11y, updates)
 
     # ================================================================ row builders
     def _register(self, key, row, setter):
@@ -378,7 +433,7 @@ class GdmPage(Adw.Bin):
     def _optional_color(self, key, title, subtitle):
         exp = Adw.ExpanderRow(title=title, subtitle=subtitle, show_enable_switch=True,
                               enable_expansion=bool(self.model.get(key)))
-        inner = Adw.ActionRow(title="Color")
+        inner = Adw.ActionRow(title=tr("Color"))
         btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER,
                                     rgba=_rgba(self.model.get(key) or "#ffffff"))
         inner.add_suffix(btn)
@@ -403,7 +458,7 @@ class GdmPage(Adw.Bin):
         return row
 
     def _accent_row(self):
-        row = Adw.ActionRow(title="Accent Color")
+        row = Adw.ActionRow(title=tr("Accent Color"))
         box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
         group = None
         buttons = {}
@@ -430,7 +485,7 @@ class GdmPage(Adw.Bin):
     # ================================================================ images
     def _choose_image(self, key):
         filt = Gtk.FileFilter(name="Images")
-        exts = IMAGE_EXTS if key == "bg_image" else {".png", ".svg", ".jpg", ".jpeg", ".webp"}
+        exts = IMAGE_EXTS if key.startswith("bg_image") else {".png", ".svg", ".jpg", ".jpeg", ".webp"}
         for ext in exts:
             filt.add_suffix(ext.lstrip("."))
         store = Gio.ListStore.new(Gtk.FileFilter)
@@ -475,7 +530,7 @@ class GdmPage(Adw.Bin):
                            margin_bottom=8, homogeneous=True)
         recs = [(e["title"], f["light"]) for e in lib.sorted_items() for f in e["files"][:4]][:48]
         if not recs:
-            self.lib_popover.set_child(Gtk.Label(label="Your library is empty.\nInstall some wallpapers first!",
+            self.lib_popover.set_child(Gtk.Label(label=tr("Your library is empty.\nInstall some wallpapers first!"),
                                                  justify=Gtk.Justification.CENTER, margin_start=18, margin_end=18,
                                                  margin_top=18, margin_bottom=18))
             return
@@ -499,10 +554,10 @@ class GdmPage(Adw.Bin):
         self.revert_btn.set_sensitive(dirty)
         if dirty:
             self.status_icon.set_from_icon_name("document-edit-symbolic")
-            self.status.set_label("Unsaved changes — applying requires your password")
+            self.status.set_label(tr("Unsaved changes — applying requires your password"))
         else:
             self.status_icon.set_from_icon_name("security-high-symbolic")
-            self.status.set_label("Originals are backed up and can be restored at any time")
+            self.status.set_label(tr("Originals are backed up and can be restored at any time"))
 
     def _update_visibility(self):
         mode = self.model.get("bg_mode")
@@ -512,6 +567,10 @@ class GdmPage(Adw.Bin):
         self.color_row.set_title("Start Color" if mode == "gradient" else "Color")
         self.color2_row.set_visible(mode == "gradient")
         self.dir_row.set_visible(mode == "gradient")
+        for key, row in self.variant_rows:
+            row.set_visible(mode == "image")
+            row.set_subtitle(Path(self.model.get(key)).name if self.model.get(key) else "Use the main image")
+        self.monitor_group.set_visible(mode == "image")
         img = self.model.get("bg_image")
         self.image_row.set_subtitle(Path(img).name if img else "No image selected")
         if img and os.path.exists(img) and getattr(self, "_thumb_for", None) != img:
@@ -525,7 +584,7 @@ class GdmPage(Adw.Bin):
         self._syncing = True
         try:
             for key, (_row, setter) in self._rows_by_key.items():
-                if self.model.has(key):
+                if self.model.has(key) or key == "panel_opacity_enabled":
                     setter(self.model.get(key))
             self.auto_exp.set_enable_expansion(bool(self.model.get("autologin_enable")))
             self.clock_expander.set_enable_expansion(bool(self.model.get("clock_size")))
@@ -542,16 +601,16 @@ class GdmPage(Adw.Bin):
 
     def _check_environment(self):
         if not os.path.exists(gm.HELPER) or not shutil.which("pkexec"):
-            self.banner.set_title("pkexec is not available — changes can't be applied")
+            self.banner.set_title(tr("pkexec is not available — changes can't be applied"))
             self.banner.set_revealed(True)
         elif __import__("orbits.system", fromlist=["usr_read_only"]).usr_read_only():
-            self.banner.set_title("This system's /usr is read-only, so the login screen can't be changed")
+            self.banner.set_title(tr("This system's /usr is read-only, so the login screen can't be changed"))
             self.banner.set_revealed(True)
         elif not (shutil.which("gdm") or os.path.exists("/usr/sbin/gdm3") or os.path.exists("/usr/sbin/gdm")):
-            self.banner.set_title("GDM doesn't appear to be installed on this system")
+            self.banner.set_title(tr("GDM doesn't appear to be installed on this system"))
             self.banner.set_revealed(True)
         elif self.model.store.get("applied_theme") and not self._theme_is_ours():
-            self.banner.set_title("A system update reset your login screen theme")
+            self.banner.set_title(tr("A system update reset your login screen theme"))
             self.banner.set_button_label("Re-apply")
             self.banner.set_revealed(True)
 
@@ -566,36 +625,142 @@ class GdmPage(Adw.Bin):
 
     # ================================================================ apply
     def apply(self):
-        bg_png = None
-        if self.model.get("bg_mode") == "image":
-            src = self.model.get("bg_image")
-            if not src or not os.path.exists(src):
-                self.window.toast("Choose a background image first")
+        # Snapshot before rendering so subsequent edits cannot change an in-flight apply.
+        model = copy.copy(self.model)
+        model.values = copy.deepcopy(self.model.values)
+        self.apply_btn.set_sensitive(False)
+        self.apply_spinner.set_visible(True)
+
+        def work():
+            backgrounds = render_backgrounds(model.values, gm.EXPORT_DIR)
+            return model.write_spec(backgrounds)
+
+        def ready(spec, err):
+            if err:
+                self.apply_btn.set_sensitive(True)
+                self.apply_spinner.set_visible(False)
+                self.window.toast(tr("Couldn't prepare login settings: {value0}").format(value0=err), timeout=6)
                 return
-            bg_png = str(gm.EXPORT_DIR / "background.jpg")
+            self._applied_values = model.values
+            self._run_helper(["apply", str(spec)], self._applied)
+
+        net.run_async(work, ready)
+
+    def _preview_greeter(self):
+        from orbits.gdm.preview import PreviewSession
+
+        self.greeter_btn.set_sensitive(False)
+        model = copy.copy(self.model)
+        model.values = copy.deepcopy(self.model.values)
+
+        def work():
+            directory = tempfile.TemporaryDirectory(prefix="orbits-greeter-")
             try:
-                try:
-                    tex = Gdk.Texture.new_from_filename(src)
-                except GLib.Error:  # formats only gdk-pixbuf loaders understand
-                    tex = Gdk.Texture.new_for_pixbuf(GdkPixbuf.Pixbuf.new_from_file(src))
-                export_background(self.window.get_renderer(), tex, self.model.get("bg_blur", 0),
-                                  self.model.get("bg_dim", 0), bg_png)
-            except GLib.Error as e:
-                self.window.toast(f"Couldn't render background: {e.message}")
+                images = render_backgrounds(model.values, directory.name)
+                spec = model.build_spec(images)
+                return PreviewSession(spec, directory)
+            except Exception:
+                directory.cleanup()
+                raise
+
+        def ready(session, err):
+            if err:
+                self.greeter_btn.set_sensitive(True)
+                self.window.toast(str(err), timeout=8)
                 return
-        try:
-            spec = self.model.write_spec(bg_png)
-        except OSError as e:
-            self.window.toast(f"Couldn't prepare settings: {e}")
-            return
-        self._run_helper(["apply", str(spec)], self._applied)
+            dialog = Adw.AlertDialog(heading=tr("Greeter Preview"),
+                body=tr("The greeter is running in a separate window using your draft settings. "
+                     "Authentication is unavailable in this preview. Close it here when finished."))
+            dialog.add_response("stop", tr("Close Preview"))
+            dialog.connect("response", lambda *_: session.stop())
+            app = self.window.get_application()
+            shutdown = app.connect("shutdown", lambda *_: session.stop())
+            dialog.present(self.window)
+
+            def finished(_result, error):
+                app.disconnect(shutdown)
+                dialog.close()
+                self.greeter_btn.set_sensitive(True)
+                if error:
+                    self.window.toast(str(error), timeout=8)
+            net.run_async(session.wait, finished)
+
+        net.run_async(work, ready)
+
+    def _configure_monitors(self):
+        dialog = Adw.Dialog(title=tr("Login Backgrounds by Monitor"), content_width=600, content_height=520)
+        group = Adw.PreferencesGroup(description=tr("Choose light and dark images for each connected display."))
+        records = []
+        layouts = set()
+        saved = {r.get("connector"): r for r in self.model.get("bg_monitors", [])}
+        monitors = Gdk.Display.get_default().get_monitors()
+        for i in range(monitors.get_n_items()):
+            monitor = monitors.get_item(i)
+            geometry = monitor.get_geometry()
+            layout = (geometry.x, geometry.y, geometry.width, geometry.height)
+            if layout in layouts:  # Mirrored outputs share a single background.
+                continue
+            layouts.add(layout)
+            connector = monitor.get_connector() or f"monitor-{i}"
+            old = saved.get(connector, {})
+            record = {"connector": connector, "name": monitor.get_model() or connector,
+                      "x": geometry.x, "y": geometry.y, "width": geometry.width, "height": geometry.height,
+                      "light": old.get("light", ""), "dark": old.get("dark", "")}
+            records.append(record)
+            for variant in ("light", "dark"):
+                row = Adw.ActionRow(title=tr('{value0} — {value1}').format(value0=record['name'], value1=variant.title()),
+                                    subtitle=Path(record[variant]).name if record[variant] else "Use global image")
+                choose = Gtk.Button(label=tr("Choose…"), valign=Gtk.Align.CENTER)
+
+                def select(_button, rec=record, key=variant, target=row):
+                    filt = Gtk.FileFilter(name="Images")
+                    for ext in IMAGE_EXTS:
+                        filt.add_suffix(ext.lstrip("."))
+                    filters = Gio.ListStore.new(Gtk.FileFilter)
+                    filters.append(filt)
+                    picker = Gtk.FileDialog(title=tr("Choose Login Background"), filters=filters)
+                    def picked(d, result):
+                        try:
+                            file = d.open_finish(result)
+                            if file and file.get_path():
+                                rec[key] = file.get_path()
+                                target.set_subtitle(Path(rec[key]).name)
+                        except GLib.Error:
+                            pass
+                    picker.open(self.window, None, picked)
+                choose.connect("clicked", select)
+                clear = Gtk.Button(icon_name="edit-clear-symbolic", tooltip_text=tr("Use global image"),
+                                   valign=Gtk.Align.CENTER)
+                clear.connect("clicked", lambda _b, rec=record, key=variant, r=row:
+                              (rec.update({key: ""}), r.set_subtitle(tr("Use global image"))))
+                row.add_suffix(clear)
+                row.add_suffix(choose)
+                group.add(row)
+        save = Gtk.Button(label=tr("Use This Layout"), css_classes=["suggested-action", "pill"])
+        save.connect("clicked", lambda *_: (self._set("bg_monitors", records), dialog.close()))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_start=18, margin_end=18,
+                      margin_top=18, margin_bottom=18)
+        box.append(group)
+        box.append(save)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(Gtk.ScrolledWindow(child=box, hscrollbar_policy=Gtk.PolicyType.NEVER))
+        dialog.set_child(view)
+        dialog.present(self.window)
 
     def _applied(self, ok, msg):
         if ok:
-            self.model.set("applied_theme", bool(self.model.build_css()))
-            self._set_dirty(False)
+            applied_theme = bool(self._applied_values.get("bg_mode") != "default" or
+                                 self._applied_values.get("text_color") or
+                                 self._applied_values.get("clock_size") or
+                                 self._applied_values.get("clock_weight") or
+                                 self._applied_values.get("clock_font") or
+                                 self._applied_values.get("panel_opacity", -1) >= 0)
+            self.model.set("applied_theme", applied_theme)
+            self._applied_values["applied_theme"] = applied_theme
+            self._set_dirty(self.model.values != self._applied_values)
             self.banner.set_revealed(False)
-            self.window.toast("Login screen updated — log out to see it", timeout=5)
+            self.window.toast(tr("Login screen updated — log out to see it"), timeout=5)
 
     def _run_helper(self, args, on_done):
         from orbits.privileged import run_helper
@@ -613,11 +778,11 @@ class GdmPage(Adw.Bin):
 
     def _confirm_reset(self):
         dlg = Adw.AlertDialog(
-            heading="Reset Login Screen?",
-            body="This restores the original GNOME Shell theme, removes all Orbits GDM settings and disables "
-                 "automatic login. Settings made by other tools are left alone.")
-        dlg.add_response("cancel", "Cancel")
-        dlg.add_response("reset", "Reset")
+            heading=tr("Reset Login Screen?"),
+            body=tr("This restores the original GNOME Shell theme, removes all Orbits GDM settings and disables "
+                 "automatic login. Settings made by other tools are left alone."))
+        dlg.add_response("cancel", tr("Cancel"))
+        dlg.add_response("reset", tr("Reset"))
         dlg.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.connect("response", lambda _d, r: r == "reset" and self._run_helper(["reset"], self._reset_done))
         dlg.present(self.window)
@@ -627,7 +792,7 @@ class GdmPage(Adw.Bin):
             self.model.reset_theme_values()
             self.model.set("applied_theme", False)
             self._revert()
-            self.window.toast("Login screen restored to defaults")
+            self.window.toast(tr("Login screen restored to defaults"))
 
     def _open_backup(self):
         Gtk.FileLauncher.new(Gio.File.new_for_path("/usr/share/gnome-shell")).launch(self.window, None, None)

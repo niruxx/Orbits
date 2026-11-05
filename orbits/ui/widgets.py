@@ -59,22 +59,38 @@ class CoverPicture(Gtk.Widget):
         snapshot.pop()
 
 
-def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, size=640):
-    """Asynchronously fill a Gtk.Picture from a URL or local path."""
+def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, size=640,
+                      fallback_url=None):
+    """Load an image asynchronously, optionally showing a thumbnail while it loads."""
+    request = object()
+    picture._texture_request = request
+    state = {"quality": -1, "pending": 1 + bool(fallback_url and fallback_url != url)}
 
-    def work():
-        return net.cached_texture(url) if url else local_thumbnail(path, size)
+    def start(image_url, quality):
+        def work():
+            return net.cached_texture(image_url) if image_url else local_thumbnail(path, size)
 
-    def done(tex, err):
-        if spinner:
-            spinner.set_visible(False)
-        if tex:
-            picture.set_paintable(tex)
-        else:
-            picture.set_paintable(None)
-            picture.add_css_class("load-failed")
+        def done(tex, err):
+            if picture._texture_request is not request:
+                return
+            state["pending"] -= 1
+            if spinner and quality == 1:
+                spinner.set_visible(False)
+            if tex is not None and quality > state["quality"]:
+                state["quality"] = quality
+                picture.remove_css_class("load-failed")
+                picture.set_paintable(tex)
+            elif not state["pending"] and state["quality"] < 0:
+                picture.set_paintable(None)
+                picture.add_css_class("load-failed")
 
-    net.run_async(work, done)
+        net.run_async(work, done)
+
+    if spinner:
+        spinner.set_visible(True)
+    if fallback_url and fallback_url != url:
+        start(fallback_url, 0)
+    start(url, 1)
 
 
 class WallCard(Gtk.Overlay):
@@ -82,6 +98,7 @@ class WallCard(Gtk.Overlay):
 
     def __init__(self, title, subtitle="", width=300, height=188):
         super().__init__(css_classes=["wall-card"], overflow=Gtk.Overflow.HIDDEN)
+        self.update_property([Gtk.AccessibleProperty.LABEL], [title])
         self.picture = CoverPicture(width, height, hexpand=True, vexpand=True)
         self.set_child(self.picture)
 

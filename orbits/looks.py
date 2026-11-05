@@ -4,7 +4,12 @@ A Look captures wallpaper, lock screen, GTK/libadwaita/Shell/icon/cursor themes,
 style, App Colors and (optionally) the login screen. Store-installed pieces are remembered by their
 store key, so applying a Look on another machine downloads whatever is missing.
 """
+from orbits.undo import reversible, EntryState
+
+import copy
 import json
+import uuid
+import tempfile
 import re
 import shutil
 import time
@@ -19,6 +24,26 @@ LOOKS_DIR = DATA_DIR / "looks"
 HISTORY_DIR = DATA_DIR / "looks-history"
 HISTORY_LIMIT = 10
 FORMAT = 1
+COMPONENTS = {"wallpaper":"Wallpaper", "lockscreen":"Lock Screen", "themes":"GTK, Shell, Icons & Cursors",
+              "fonts":"Fonts & Text Scaling", "colors":"App Colors, GTK4 Styling & Accent", "login":"Login Screen Draft"}
+DESKTOP_COMPONENTS = set(COMPONENTS) - {"login"}
+
+
+def interface_component(key):
+    if key.endswith("font-name") or key == "text-scaling-factor":
+        return "fonts"
+    if key in ("accent-color", "color-scheme"):
+        return "colors"
+    return "themes"
+
+
+def font_family(description):
+    try:
+        from gi.repository import Pango
+        family=Pango.FontDescription.from_string(description).get_family()
+        if family:return family
+    except (ImportError,AttributeError):pass
+    return re.sub(r"\s+\d+(?:\.\d+)?(?:\s+@.*)?$", "", description)
 IFACE_KEYS = ["gtk-theme", "icon-theme", "cursor-theme", "cursor-size", "color-scheme", "accent-color",
               "font-name", "document-font-name", "monospace-font-name", "text-scaling-factor"]
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -28,7 +53,8 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".jxl", ".svg", ".bmp",
 
 
 def _iface():
-    return Gio.Settings.new("org.gnome.desktop.interface")
+    from orbits.desktop import interface_settings
+    return interface_settings()
 
 
 def _iface_keys():
@@ -56,7 +82,8 @@ def capture(name, include_login=False):
         v = iface.get_value(k).unpack()
         interface[k] = v
 
-    bg = Gio.Settings.new("org.gnome.desktop.background")
+    from orbits.desktop import background_settings
+    bg = background_settings()
     lock = Gio.Settings.new("org.gnome.desktop.screensaver")
     light, dark = _uri_path(bg.get_string("picture-uri")), _uri_path(bg.get_string("picture-uri-dark"))
     wallpaper = {"light": light, "dark": dark if dark != light else None,
@@ -74,7 +101,7 @@ def capture(name, include_login=False):
                 assets["themes"][f"{kind_id}:{theme_name}"] = {"key": key, "download": e.get("download")}
     fonts = get_font_library()
     for role_key in ("font-name", "document-font-name", "monospace-font-name"):
-        family = re.sub(r"\s+\d+(\.\d+)?$", "", interface.get(role_key, ""))
+        family = font_family(interface.get(role_key, ""))
         for e in fonts.items.values():
             if family in e.get("families", []) or family == e.get("family"):
                 assets["fonts"][family] = {"key": e["key"]}
@@ -92,7 +119,8 @@ def capture(name, include_login=False):
     if include_login:
         from orbits.gdm.model import GdmModel
 
-        look["login"] = {k: v for k, v in GdmModel().values.items() if isinstance(v, (str, int, float, bool))}
+        look["login"] = {k: v for k, v in GdmModel().values.items()
+                         if isinstance(v, (str, int, float, bool)) and k not in ("auto_reapply", "applied_theme")}
     return look
 
 
@@ -123,17 +151,23 @@ class LookStore(GObject.Object):
         return self._list(HISTORY_DIR)
 
     def _write(self, base, look, slug=None):
-        slug = slug or f"{re.sub(r'[^a-z0-9]+', '-', look['name'].lower()).strip('-') or 'look'}-{int(time.time())}"
+        slug = slug or f"{re.sub(r'[^a-z0-9]+', '-', look['name'].lower()).strip('-') or 'look'}-{uuid.uuid4().hex[:10]}"
         d = base / slug
         d.mkdir(parents=True, exist_ok=True)
-        look = {k: v for k, v in look.items() if not k.startswith("_")}
-        # keep a copy of the wallpapers with the Look so it survives uninstalling them from the Library
+        look = copy.deepcopy({k: v for k, v in look.items() if not k.startswith("_")})
+        from orbits.look_assets import copy_background
         for kind in ("light", "dark"):
-            p = look["wallpaper"].get(kind)
-            if p and Path(p).is_file() and not str(p).startswith(str(d)):
-                dest = d / f"wallpaper-{kind}{Path(p).suffix.lower()}"
-                shutil.copy2(p, dest)
-                look["wallpaper"][kind] = str(dest)
+            source=look["wallpaper"].get(kind)
+            if source and Path(source).is_file():
+                look["wallpaper"][kind]=copy_background(source,d,f"wallpaper-{kind}")
+        for field,stem in (("screenshot","screenshot"),("lockscreen","lockscreen")):
+            source=look.get(field)
+            if source and Path(source).is_file():
+                if field=="lockscreen":look[field]=copy_background(source,d,stem)
+                else:
+                    target=d/(stem+Path(source).suffix.lower())
+                    if Path(source).resolve()!=target.resolve():shutil.copy2(source,target)
+                    look[field]=str(target)
         (d / "look.json").write_text(json.dumps(look, indent=2))
         self.emit("changed")
         return d
@@ -163,57 +197,74 @@ class LookStore(GObject.Object):
         data = {k: v for k, v in look.items() if not k.startswith("_")}
         data = json.loads(json.dumps(data))
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+            from orbits.look_assets import archive_background
             for kind in ("light", "dark"):
-                p = data["wallpaper"].get(kind)
-                if p and Path(p).is_file():
-                    arc = f"wallpaper-{kind}{Path(p).suffix.lower()}"
-                    z.write(p, arc)
-                    data["wallpaper"][kind] = arc
-                else:
-                    data["wallpaper"][kind] = None
-            lock = data.get("lockscreen")
-            if lock and Path(lock).is_file():
-                arc = f"lockscreen{Path(lock).suffix.lower()}"
-                z.write(lock, arc)
-                data["lockscreen"] = arc
-            else:
-                data["lockscreen"] = None
+                source=data["wallpaper"].get(kind)
+                data["wallpaper"][kind]=archive_background(z,source,f"wallpaper-{kind}") if source and Path(source).is_file() else None
+            source=data.get("lockscreen")
+            data["lockscreen"]=archive_background(z,source,"lockscreen") if source and Path(source).is_file() else None
+            screenshot=data.get("screenshot")
+            if screenshot and Path(screenshot).is_file():
+                arc="screenshot"+Path(screenshot).suffix.lower()
+                z.write(screenshot,arc);data["screenshot"]=arc
+            else:data.pop("screenshot",None)
             login = data.get("login")
-            if login and login.get("bg_image") and Path(login["bg_image"]).is_file():
-                arc = f"login-background{Path(login['bg_image']).suffix.lower()}"
-                z.write(login["bg_image"], arc)
-                login["bg_image"] = arc
-            elif login:
-                login["bg_image"] = ""
             if login:
-                login.pop("logo", None)  # system path; not portable
+                for key in ("bg_image", "bg_image_light", "bg_image_dark"):
+                    source = login.get(key)
+                    if source and Path(source).is_file():
+                        arc = f"login-{key}{Path(source).suffix.lower()}"
+                        z.write(source, arc)
+                        login[key] = arc
+                    else:
+                        login[key] = ""
+                for key in ("logo", "auto_reapply", "applied_theme", "bg_monitors"):
+                    login.pop(key, None)  # System policy and monitor layouts stay on this machine.
             z.writestr("look.json", json.dumps(data, indent=2))
 
     def import_file(self, src: Path):
-        with zipfile.ZipFile(src) as z:
-            raw = json.loads(z.read("look.json"))
-            look = sanitize(raw)
-            d = LOOKS_DIR / f"imported-{int(time.time())}"
-            d.mkdir(parents=True)
-            names = set(z.namelist())
-
-            def take(arc):
-                if not arc or arc not in names or "/" in arc or Path(arc).suffix.lower() not in IMAGE_EXTS:
-                    return None
-                out = d / arc
-                with z.open(arc) as fsrc, open(out, "wb") as fdst:
-                    shutil.copyfileobj(fsrc, fdst, 1 << 20)
-                return str(out)
-
-            for kind in ("light", "dark"):
-                look["wallpaper"][kind] = take(raw.get("wallpaper", {}).get(kind))
-            look["lockscreen"] = take(raw.get("lockscreen"))
-            if look.get("login") is not None:
-                look["login"]["bg_image"] = take((raw.get("login") or {}).get("bg_image")) or ""
-        look["created"] = time.time()
-        (d / "look.json").write_text(json.dumps(look, indent=2))
-        self.emit("changed")
-        look["_dir"] = str(d)
+        from orbits.look_assets import rewrite_slideshow
+        d=LOOKS_DIR/("imported-"+uuid.uuid4().hex)
+        d.mkdir(parents=True)
+        try:
+            with zipfile.ZipFile(src) as z:
+                infos=z.infolist()
+                if len(infos)>5000 or sum(info.file_size for info in infos)>512<<20:
+                    raise ValueError("Look archive is too large")
+                if z.getinfo("look.json").file_size>2<<20:raise ValueError("Look metadata is too large")
+                raw=json.loads(z.read("look.json"));look=sanitize(raw)
+                names=set(z.namelist());taken={}
+                def take(arc,allow_xml=False):
+                    if not isinstance(arc,str) or not arc or arc not in names or "/" in arc or "\\" in arc:
+                        return None
+                    suffix=Path(arc).suffix.lower()
+                    if suffix not in IMAGE_EXTS and not (allow_xml and suffix==".xml"):return None
+                    if arc in taken:return taken[arc]
+                    out=d/arc
+                    if suffix==".xml":
+                        def image(value):
+                            result=take(value)
+                            if not result:raise ValueError("Slideshow frame is missing from the Look archive")
+                            return result
+                        out.write_text(rewrite_slideshow(z.read(arc).decode("utf-8"),image))
+                    else:
+                        with z.open(arc) as source,out.open("wb") as output:shutil.copyfileobj(source,output)
+                    taken[arc]=str(out)
+                    return str(out)
+                for kind in ("light","dark"):
+                    look["wallpaper"][kind]=take((raw.get("wallpaper") or {}).get(kind),True)
+                look["lockscreen"]=take(raw.get("lockscreen"),True)
+                screenshot=take(raw.get("screenshot"))
+                if screenshot:look["screenshot"]=screenshot
+                if look.get("login") is not None:
+                    for key in ("bg_image", "bg_image_light", "bg_image_dark"):
+                        look["login"][key]=take((raw.get("login") or {}).get(key)) or ""
+            look["created"]=time.time()
+            (d/"look.json").write_text(json.dumps(look,indent=2))
+        except Exception:
+            shutil.rmtree(d,ignore_errors=True)
+            raise
+        self.emit("changed");look["_dir"]=str(d)
         return look
 
 
@@ -267,7 +318,7 @@ def sanitize(raw):
         from orbits.gdm.model import THEME_DEFAULTS, GdmModel
 
         allowed = set(THEME_DEFAULTS) | {dk.name for dk in GdmModel().keys}
-        allowed -= {"logo", "autologin_enable", "autologin_user"}  # never import who logs in automatically
+        allowed -= {"logo", "autologin_enable", "autologin_user", "auto_reapply", "applied_theme", "bg_monitors"}  # never import who logs in automatically
         clean = {}
         for k, v in login.items():
             if k not in allowed or not isinstance(v, (str, int, float, bool)):
@@ -279,6 +330,22 @@ def sanitize(raw):
             clean[k] = v
         look["login"] = clean
     return look
+
+
+def preview_path(look):
+    path=(look.get("wallpaper") or {}).get("light")
+    if not path or not Path(path).is_file():return None
+    if Path(path).suffix.lower()!=".xml":return path
+    import xml.etree.ElementTree as ET
+    try:
+        tree=ET.parse(path)
+        for node in tree.iter():
+            if node.tag in ("file","size") and not len(node) and node.text:
+                candidate=Path(node.text.strip())
+                if not candidate.is_absolute():candidate=Path(path).parent/candidate
+                if candidate.is_file():return str(candidate)
+    except (OSError,ET.ParseError):pass
+    return None
 
 
 def summary(look):
@@ -297,27 +364,35 @@ def summary(look):
 class LookApplier:
     """Applies a Look step by step on the main loop, downloading missing store items first."""
 
-    def __init__(self, look, window, include_login=False, done=None):
+    def __init__(self, look, window, include_login=False, done=None, components=None):
         self.look, self.window, self.include_login, self.done = look, window, include_login, done
         self.notes = []
+        self.components=set(components) if components is not None else DESKTOP_COMPONENTS | ({"login"} if include_login else set())
+        if not self.components <= set(COMPONENTS):raise ValueError("Unknown Look component")
 
     def start(self):
+        if not self.components:
+            if self.done:self.done(["No components selected"])
+            return
         get_store().snapshot(f"Before “{self.look.get('name', 'Look')}”")
         self._install_missing(list(self._missing()))
 
     def _missing(self):
         from orbits import themes
         from orbits.fonts import get_font_library
-        from orbits.ui.font_actions import system_families
+        from orbits.fonts import system_families
 
         installed = {k: {t.name for t in themes.installed(k)} for k in ("gtk", "shell", "icons", "cursors")}
         for spec, ref in self.look.get("assets", {}).get("themes", {}).items():
             kind, name = spec.split(":", 1)
-            if name not in installed.get(kind, set()):
+            selected = "themes" in self.components or ("colors" in self.components and kind == "gtk" and name == self.look.get("libadwaita_theme"))
+            if selected and name not in installed.get(kind, set()):
                 yield ("theme", kind, name, ref)
-        families = set(system_families())
+        families = set(system_families()) if "fonts" in self.components else set()
         fonts = get_font_library()
-        for family, ref in self.look.get("assets", {}).get("fonts", {}).items():
+        for family, ref in (self.look.get("assets", {}).get("fonts", {}) if "fonts" in self.components else {}).items():
+            entry=fonts.items.get(ref["key"])
+            if entry and not entry.get("enabled",True):fonts.set_enabled(ref["key"],True)
             if family not in families and ref["key"] not in fonts.items:
                 yield ("font", None, family, ref)
 
@@ -362,18 +437,26 @@ class LookApplier:
         net.run_async(fetch, fetched)
 
     def _apply_settings(self):
+        try:
+            self._apply_selected_settings()
+        except Exception as error:
+            self.notes.append(str(error))
+            if self.done:self.done(self.notes)
+
+    @reversible("Look applied")
+    def _apply_selected_settings(self):
         from orbits import colors, themes
-        from orbits.ui.font_actions import system_families
+        from orbits.fonts import system_families
 
         look = self.look
         iface = _iface()
-        families = set(system_families())
+        families = set(system_families()) if "fonts" in self.components else set()
         keys = set(_iface_keys())
         for k, v in look.get("interface", {}).items():
-            if k not in keys:
+            if k not in keys or interface_component(k) not in self.components:
                 continue
             if k.endswith("font-name"):
-                family = re.sub(r"\s+\d+(\.\d+)?$", "", v)
+                family = font_family(v)
                 if family not in families:
                     self.notes.append(f"font “{family}” isn't installed")
                     continue
@@ -388,7 +471,7 @@ class LookApplier:
                 self.notes.append(f"couldn't set {k}")
 
         shell = look.get("shell_theme")
-        if shell is not None:
+        if "themes" in self.components and shell is not None:
             try:
                 if shell == "" or shell in {t.name for t in themes.installed("shell")}:
                     themes.apply("shell", shell)
@@ -397,34 +480,44 @@ class LookApplier:
             except RuntimeError as e:
                 self.notes.append(str(e))
 
-        if look.get("app_colors"):
-            state = colors.load_state()
-            state.update(preset=look["app_colors"].get("preset"), palette=look["app_colors"]["palette"])
-            colors.apply(state)
-        else:
-            if colors.is_applied():
-                colors.remove()
-            lt = look.get("libadwaita_theme")
-            match = next((t for t in themes.installed("gtk") if t.name == lt), None) if lt else None
-            if match and (match.path / "gtk-4.0" / "gtk.css").exists():
-                themes.apply_libadwaita(match.path)
-            elif themes.libadwaita_state()[0]:
-                themes.remove_libadwaita()
+        if "colors" in self.components:
+            if look.get("app_colors"):
+                state = colors.load_state()
+                palette={tone:({**colors.PRESETS["Adwaita"][tone],**values} if values else None)
+                         for tone,values in look["app_colors"]["palette"].items()}
+                state.update(preset=look["app_colors"].get("preset"), palette=palette, gnome_accent=False)
+                colors.apply(state)
+            else:
+                if colors.is_applied():
+                    colors.remove()
+                lt = look.get("libadwaita_theme")
+                match = next((t for t in themes.installed("gtk") if t.name == lt), None) if lt else None
+                if match and (match.path / "gtk-4.0" / "gtk.css").exists():
+                    themes.apply_libadwaita(match.path)
+                elif themes.libadwaita_state()[0]:
+                    themes.remove_libadwaita()
 
-        bg = Gio.Settings.new("org.gnome.desktop.background")
+        from orbits.desktop import background_settings, detect, xfce_wallpaper
         wp = look.get("wallpaper", {})
         light = wp.get("light")
-        if light and Path(light).is_file():
-            bg.set_string("picture-options", wp.get("options") or "zoom")
-            bg.set_string("picture-uri", GLib.filename_to_uri(light))
-            dark = wp.get("dark")
-            bg.set_string("picture-uri-dark", GLib.filename_to_uri(dark if dark and Path(dark).is_file() else light))
+        if "wallpaper" in self.components and light and Path(light).is_file():
+            if detect() == "xfce":
+                xfce_wallpaper(light,wp.get("options") or "zoom")
+            else:
+                bg=background_settings()
+                bg.set_string("picture-options",wp.get("options") or "zoom")
+                bg.set_string("picture-uri",GLib.filename_to_uri(light))
+                dark=wp.get("dark")
+                bg.set_string("picture-uri-dark",GLib.filename_to_uri(dark if dark and Path(dark).is_file() else light))
         lock = look.get("lockscreen")
-        if lock and Path(lock).is_file():
-            Gio.Settings.new("org.gnome.desktop.screensaver").set_string("picture-uri", GLib.filename_to_uri(lock))
+        if "lockscreen" in self.components and lock and Path(lock).is_file():
+            if detect() in ('gnome','budgie'):
+                Gio.Settings.new("org.gnome.desktop.screensaver").set_string("picture-uri",GLib.filename_to_uri(lock))
+            else:
+                self.notes.append("Separate lock-screen backgrounds are not supported on this desktop")
         Gio.Settings.sync()
 
-        if self.include_login and look.get("login"):
+        if "login" in self.components and self.include_login and look.get("login"):
             gdm = self.window.pages.get("gdm")
             if gdm:
                 gdm.load_values(look["login"])

@@ -1,4 +1,5 @@
 """Installed wallpapers."""
+from orbits.i18n import _ as tr
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from orbits.config import settings
@@ -6,7 +7,7 @@ from orbits.library import IMAGE_EXTS, get_library
 from orbits.sources import BY_ID
 from orbits.ui.widgets import CoverPicture, WallCard, load_texture_into, make_grid, open_uri, status_page
 
-FILTERS = [("all", "All")] + [(s.id, s.name) for s in BY_ID.values()] + [("local", "Imported")]
+FILTERS = [("all", "All"), ("favorites", "Favorites")] + [(s.id, s.name) for s in BY_ID.values()] + [("local", "Imported")]
 
 
 class LibraryPage(Adw.Bin):
@@ -17,20 +18,24 @@ class LibraryPage(Adw.Bin):
         self.lib = get_library()
         self.filter = "all"
         self.query = ""
+        self.collection = ""
 
-        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Library", subtitle="Your installed wallpapers"))
-        add = Gtk.Button(tooltip_text="Import Images…")
-        add.set_child(Adw.ButtonContent(icon_name="list-add-symbolic", label="Import"))
+        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title=tr("Library"), subtitle=tr("Your installed wallpapers")))
+        add = Gtk.Button(tooltip_text=tr("Import Images…"))
+        add.set_child(Adw.ButtonContent(icon_name="list-add-symbolic", label=tr("Import")))
         add.connect("clicked", self._import)
         header.pack_start(add)
-        self.search_btn = Gtk.ToggleButton(icon_name="system-search-symbolic", tooltip_text="Search (Ctrl+F)")
+        self.search_btn = Gtk.ToggleButton(icon_name="system-search-symbolic", tooltip_text=tr("Search (Ctrl+F)"))
         header.pack_end(self.search_btn)
-        folder = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Open Download Folder")
+        folder = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text=tr("Open Download Folder"))
         folder.connect("clicked", lambda *_: self._open_folder())
         header.pack_end(folder)
+        tools = Gtk.Button(icon_name="document-properties-symbolic", tooltip_text=tr("Wallpaper Tools"))
+        tools.connect("clicked", self._tools)
+        header.pack_end(tools)
 
         self.search_bar = Gtk.SearchBar()
-        self.search_entry = Gtk.SearchEntry(placeholder_text="Filter by name…")
+        self.search_entry = Gtk.SearchEntry(placeholder_text=tr("Filter by name…"))
         self.search_entry.connect("search-changed", self._on_search)
         self.search_bar.set_child(Adw.Clamp(maximum_size=520, child=self.search_entry))
         self.search_bar.connect_entry(self.search_entry)
@@ -65,6 +70,10 @@ class LibraryPage(Adw.Bin):
         view = Adw.ToolbarView(top_bar_style=Adw.ToolbarStyle.FLAT)
         view.add_top_bar(header)
         view.add_top_bar(self.search_bar)
+        self.collection_row = Adw.ComboRow(title=tr("Collection"), model=Gtk.StringList.new(["All Collections"]))
+        self.collection_names = [""]
+        self.collection_row.connect("notify::selected", self._collection_changed)
+        view.add_top_bar(self.collection_row)
         view.add_top_bar(Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER, child=chips,
                                             propagate_natural_height=True))
         view.set_content(self.stack)
@@ -78,10 +87,29 @@ class LibraryPage(Adw.Bin):
         self.lib.connect("changed", lambda *_: self.rebuild())
         self.rebuild()
 
+    def on_shown(self):
+        self.lib.reload_index()
+        self.rebuild()
+
+    def _tools(self, *_):
+        from orbits.ui.wallpaper_tools import WallpaperToolsDialog
+        WallpaperToolsDialog(self).present(self.window)
+
+    def _collection_changed(self, row, _p):
+        index = row.get_selected()
+        self.collection = self.collection_names[index] if index < len(self.collection_names) else ""
+        self.grid.invalidate_filter()
+
     def toggle_search(self):
         self.search_btn.set_active(not self.search_btn.get_active())
 
     def rebuild(self):
+        collection_names = [""] + self.lib.collections()
+        if collection_names != self.collection_names:
+            self.collection_names = collection_names
+            current = self.collection if self.collection in collection_names else ""
+            self.collection_row.set_model(Gtk.StringList.new(["All Collections"] + collection_names[1:]))
+            self.collection_row.set_selected(collection_names.index(current))
         items = self.lib.sorted_items()
         keys = [i["key"] for i in items]
         if keys != list(self.cards):
@@ -93,9 +121,10 @@ class LibraryPage(Adw.Bin):
                 self.cards[entry["key"]] = card
                 self.grid.append(card)
         for card in self.cards.values():
+            card.entry = self.lib.items[card.entry["key"]]
             current = self.lib.is_current(card.entry)
             n = len(card.entry["files"])
-            card.set_badge("● Current" if current else (f"{n} wallpapers" if n > 1 else ""), accent=current)
+            card.set_badge("● Current" if current else ("★ Favorite" if card.entry.get("favorite") else (f"{n} wallpapers" if n > 1 else "")), accent=current)
         self.stack.set_visible_child_name("grid" if items else "empty")
         self.grid.invalidate_filter()
 
@@ -103,15 +132,20 @@ class LibraryPage(Adw.Bin):
         src = BY_ID.get(entry["source"])
         card = WallCard(entry["title"], src.name if src else "Imported")
         card.entry = entry
-        card.add_action_button("user-trash-symbolic", "Uninstall", lambda: self.uninstall(card.entry))
-        card.add_action_button("preferences-desktop-wallpaper-symbolic", "Set as Wallpaper",
+        card.add_action_button("starred-symbolic", tr("Toggle Favorite"), lambda: self.lib.set_favorite(card.entry["key"], not card.entry.get("favorite")))
+        card.add_action_button("user-trash-symbolic", tr("Uninstall"), lambda: self.uninstall(card.entry))
+        card.add_action_button("preferences-desktop-wallpaper-symbolic", tr("Set as Wallpaper"),
                                lambda: self.apply(card.entry, card.entry["files"][0]))
-        card.load(path=entry["files"][0]["light"])
+        card.load(path=entry["files"][0].get("preview") or entry["files"][0]["light"])
         return card
 
     def _filter_func(self, child):
         e = child.get_child().entry
-        if self.filter != "all" and e["source"] != self.filter:
+        if self.filter == "favorites" and not e.get("favorite"):
+            return False
+        if self.collection and self.collection not in e.get("collections", []):
+            return False
+        if self.filter not in ("all", "favorites") and e["source"] != self.filter:
             return False
         return not self.query or self.query in e["title"].lower()
 
@@ -126,21 +160,25 @@ class LibraryPage(Adw.Bin):
     # ---------------------------------------------------------------- actions
     def apply(self, entry, rec, lockscreen=None):
         lock = settings.get("apply_lockscreen_too") if lockscreen is None else lockscreen
-        self.lib.apply(rec, desktop=True, lockscreen=lock)
-        self.window.toast(f"Wallpaper set to “{entry['title']}”")
+        try:
+            self.lib.apply(rec, desktop=True, lockscreen=lock)
+        except Exception as error:
+            self.window.toast(str(error), timeout=6)
+            return
+        self.window.toast(tr('Wallpaper set to “{value0}”').format(value0=entry['title']))
 
     def uninstall(self, entry):
-        dlg = Adw.AlertDialog(heading=f"Uninstall “{entry['title']}”?",
-                              body=f"{len(entry['files'])} file(s) will be deleted from disk.")
-        dlg.add_response("cancel", "Cancel")
-        dlg.add_response("remove", "Uninstall")
+        dlg = Adw.AlertDialog(heading=tr('Uninstall “{value0}”?').format(value0=entry['title']),
+                              body=tr('{value0} file(s) will be deleted from disk.').format(value0=len(entry['files'])))
+        dlg.add_response("cancel", tr("Cancel"))
+        dlg.add_response("remove", tr("Uninstall"))
         dlg.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.connect("response", lambda _d, r: r == "remove" and self._do_uninstall(entry))
         dlg.present(self.window)
 
     def _do_uninstall(self, entry):
         self.lib.uninstall(entry["key"])
-        self.window.toast(f"Uninstalled “{entry['title']}”")
+        self.window.toast(tr('Uninstalled “{value0}”').format(value0=entry['title']))
 
     def _open_folder(self):
         from orbits.config import download_dir
@@ -153,7 +191,7 @@ class LibraryPage(Adw.Bin):
             filt.add_suffix(ext.lstrip("."))
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(filt)
-        dlg = Gtk.FileDialog(title="Import Wallpapers", filters=store)
+        dlg = Gtk.FileDialog(title=tr("Import Wallpapers"), filters=store)
 
         def done(d, res):
             try:
@@ -165,7 +203,11 @@ class LibraryPage(Adw.Bin):
         dlg.open_multiple(self.window, None, done)
 
     def _import_paths(self, paths):
-        n = self.lib.import_files(paths)
+        try:
+            n = self.lib.import_files(paths)
+        except Exception as error:
+            self.window.toast(tr('Import failed: {value0}').format(value0=error), timeout=6)
+            return
         self.window.toast(f"Imported {n} wallpaper{'s' if n != 1 else ''}" if n else "No supported images found")
 
     def _on_drop(self, _t, value, _x, _y):
@@ -189,9 +231,9 @@ class LibraryDialog(Adw.Dialog):
             frame = Gtk.Overlay(css_classes=["detail-hero"], overflow=Gtk.Overflow.HIDDEN)
             pic = CoverPicture(860, 460, hexpand=True)
             frame.set_child(pic)
-            load_texture_into(pic, path=rec["light"], size=1600)
+            load_texture_into(pic, path=rec.get("preview") or rec["light"], size=3840)
             if rec.get("dark"):
-                frame.add_overlay(Gtk.Label(label="Light + Dark", css_classes=["badge"], halign=Gtk.Align.START,
+                frame.add_overlay(Gtk.Label(label=tr("Light + Dark"), css_classes=["badge"], halign=Gtk.Align.START,
                                             valign=Gtk.Align.START))
             self.carousel.append(frame)
         hero_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, css_classes=["wall-card"])
@@ -210,20 +252,21 @@ class LibraryDialog(Adw.Dialog):
 
         buttons = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
         rm = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["circular", "destructive-action"],
-                        tooltip_text="Uninstall")
+                        tooltip_text=tr("Uninstall"))
         rm.connect("clicked", lambda *_: (self.close(), page.uninstall(entry)))
         buttons.append(rm)
-        more = Gtk.MenuButton(icon_name="view-more-symbolic", css_classes=["circular"], tooltip_text="More")
+        more = Gtk.MenuButton(icon_name="view-more-symbolic", css_classes=["circular"], tooltip_text=tr("More"))
         pop = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         for label, cb in [("Set as Lock Screen", self._lock), ("Use for Login Screen", self._gdm),
-                          ("Show in Files", self._show_file)]:
+                          ("Edit Before Applying", self._edit), ("Use for App Colors", self._colors),
+                          ("Collections…", self._collections), ("Show in Files", self._show_file)]:
             b = Gtk.Button(label=label, css_classes=["flat"])
             b.connect("clicked", lambda _b, cb=cb: (more.popdown(), cb()))
             pop.append(b)
         more.set_popover(Gtk.Popover(child=pop))
         buttons.append(more)
         apply = Gtk.Button(css_classes=["pill", "suggested-action"])
-        apply.set_child(Adw.ButtonContent(label="Set as Wallpaper", icon_name="preferences-desktop-wallpaper-symbolic"))
+        apply.set_child(Adw.ButtonContent(label=tr("Set as Wallpaper"), icon_name="preferences-desktop-wallpaper-symbolic"))
         apply.connect("clicked", lambda *_: page.apply(entry, self._rec()))
         buttons.append(apply)
 
@@ -236,7 +279,7 @@ class LibraryDialog(Adw.Dialog):
 
         header = Adw.HeaderBar()
         if entry.get("page_url"):
-            web = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in Browser")
+            web = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text=tr("Open in Browser"))
             web.connect("clicked", lambda *_: open_uri(self, entry["page_url"]))
             header.pack_start(web)
         view = Adw.ToolbarView()
@@ -248,9 +291,33 @@ class LibraryDialog(Adw.Dialog):
     def _rec(self):
         return self.entry["files"][round(self.carousel.get_position())]
 
+    def _edit(self):
+        from orbits.ui.wallpaper_tools import WallpaperEditor
+        WallpaperEditor(self.page, self._rec()).present(self.page.window)
+
+    def _colors(self):
+        path = self._rec().get("preview") or self._rec()["light"]
+        self.close()
+        self.page.window.navigate("app-colors")
+        self.page.window.pages["app-colors"].from_wallpaper(path)
+
+    def _collections(self):
+        dialog = Adw.AlertDialog(heading=tr("Wallpaper Collections"), body="Separate collection names with commas. Existing: " + ", ".join(self.page.lib.collections()))
+        field = Gtk.Entry(text=", ".join(self.entry.get("collections", [])), placeholder_text=tr("Nature, Favorites, Work"))
+        dialog.set_extra_child(field)
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("save", tr("Save"))
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", lambda _d, r: r == "save" and self.page.lib.set_collections(self.entry["key"], field.get_text().split(",")))
+        dialog.present(self)
+
     def _lock(self):
-        self.page.lib.apply(self._rec(), desktop=False, lockscreen=True)
-        self.page.window.toast("Lock screen background updated")
+        try:
+            self.page.lib.apply(self._rec(), desktop=False, lockscreen=True)
+        except Exception as error:
+            self.page.window.toast(str(error), timeout=6)
+            return
+        self.page.window.toast(tr("Lock screen background updated"))
 
     def _gdm(self):
         path = self._rec()["light"]

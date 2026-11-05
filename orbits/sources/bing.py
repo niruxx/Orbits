@@ -34,7 +34,7 @@ class BingSource(Source):
                     title=d.get("title") or title,
                     author=("©" + credit.rstrip(")")) if credit else "",
                     thumb_url=base + "_800x480.jpg",
-                    preview_url=base + "_1920x1080.jpg",
+                    preview_url=base + "_UHD.jpg",
                     page_url=d.get("copyrightlink") or BASE,
                     resolution="3840x2160",
                     description=title,

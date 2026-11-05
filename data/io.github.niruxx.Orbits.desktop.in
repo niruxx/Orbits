@@ -10,3 +10,9 @@ Categories=GTK;GNOME;Settings;DesktopSettings;
 Keywords=wallpaper;background;fonts;gdm;login;lock screen;kde;wallhaven;bing;google fonts;nerd fonts;
 StartupNotify=true
 DBusActivatable=false
+
+Actions=QuickSwitcher;
+
+[Desktop Action QuickSwitcher]
+Name=Quick Switcher
+Exec=@EXEC@ --quick-switcher

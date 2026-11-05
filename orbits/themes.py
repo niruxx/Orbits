@@ -1,4 +1,6 @@
 """GTK, GNOME Shell, icon, cursor and Plymouth themes: discovery (gnome-look.org), install, apply, remove."""
+from orbits.undo import reversible, EntryState
+
 import json
 import os
 import re
@@ -22,6 +24,8 @@ HOME = Path.home()
 DATA_HOME = Path(GLib.get_user_data_dir())
 USER_THEMES = DATA_HOME / "themes"
 USER_ICONS = DATA_HOME / "icons"
+USER_SOUNDS = DATA_HOME / "sounds"
+USER_TERMINALS = DATA_DIR / "terminal-themes"
 GTK4_CONFIG = Path(GLib.get_user_config_dir()) / "gtk-4.0"
 LIBADWAITA_MARKER = GTK4_CONFIG / ".orbits-libadwaita"
 LIBADWAITA_FILES = ("gtk.css", "gtk-dark.css", "assets", "thumbnail.png")
@@ -58,6 +62,24 @@ def _is_gtk(d):
     return (d / "gtk-3.0").is_dir() or (d / "gtk-4.0").is_dir()
 
 
+def _is_gtk2(d):
+    return (d / "gtk-2.0" / "gtkrc").is_file()
+
+
+def _is_gtk1(d):
+    return (d / "gtk" / "gtkrc").is_file()
+
+
+def _is_sounds(d):
+    kf = _index_theme(d)
+    return bool(kf and kf.has_group("Sound Theme"))
+
+
+def _is_terminal(d):
+    from orbits.terminal_schemes import find_schemes
+    return (d / "terminal.json").is_file() and bool(find_schemes(d))
+
+
 def _is_shell(d):
     return (d / "gnome-shell" / "gnome-shell.css").is_file()
 
@@ -90,12 +112,23 @@ def _is_plymouth(d):
 
 
 _MATCHERS = {"gtk": _is_gtk, "shell": _is_shell, "icons": _is_icons, "cursors": _is_cursors,
-             "plymouth": _is_plymouth}
+             "plymouth": _is_plymouth, "gtk2": _is_gtk2, "gtk1": _is_gtk1, "sounds": _is_sounds, "terminal": _is_terminal}
 
 THEME_DIRS = (USER_THEMES, HOME / ".themes", Path("/usr/local/share/themes"), Path("/usr/share/themes"))
 ICON_DIRS = (USER_ICONS, HOME / ".icons", Path("/usr/local/share/icons"), Path("/usr/share/icons"))
 
+SOUND_DIRS = (USER_SOUNDS, Path("/usr/local/share/sounds"), Path("/usr/share/sounds"))
+
 KINDS = {
+    "gtk2": Kind("gtk2", "GTK2 Themes", "GTK2 theme", "applications-graphics-symbolic", "136",
+                 "Themes for legacy GTK2 applications", USER_THEMES, THEME_DIRS, "themes", "Raleigh"),
+    "gtk1": Kind("gtk1", "GTK1 Themes", "GTK1 theme", "applications-graphics-symbolic", "284",
+                 "Themes for older GTK1 applications", USER_THEMES, THEME_DIRS, "themes", ""),
+    "sounds": Kind("sounds", "Sound Themes", "sound theme", "audio-volume-high-symbolic", "316",
+                   "Desktop event sounds", USER_SOUNDS, SOUND_DIRS, "sounds", "freedesktop"),
+    "terminal": Kind("terminal", "Terminal Colors", "terminal scheme", "utilities-terminal-symbolic", "462",
+                     "Terminal palettes imported as data", USER_TERMINALS,
+                     (USER_TERMINALS, Path("/usr/share/orbits/terminal-themes")), "terminal", ""),
     "gtk": Kind("gtk", "GTK Themes", "GTK theme", "applications-graphics-symbolic", "135",
                 "Restyle GTK3 and libadwaita apps", USER_THEMES, THEME_DIRS, "themes", "Adwaita"),
     "shell": Kind("shell", "Shell Themes", "Shell theme", "user-desktop-symbolic", "134",
@@ -119,6 +152,10 @@ class ThemeStoreSource(OcsSource):
 
     def __init__(self, kind: Kind):
         self.kind = kind
+        self.source_url = "https://www.gnome-look.org"
+        if kind.id in ("gtk1", "gtk2", "sounds", "terminal"):
+            self.api = "https://api.opendesktop.org/ocs/v1/content/data"
+            self.source_url = "https://www.opendesktop.org"
         self.id = f"theme-{kind.id}"
         self.name = kind.title
         self.icon = kind.icon
@@ -223,6 +260,12 @@ def plymouth_current():
 
 
 def current(kind_id):
+    if kind_id in ("gtk1", "gtk2"):
+        return legacy_current(kind_id)
+    if kind_id == "sounds":
+        return Gio.Settings.new("org.gnome.desktop.sound").get_string("theme-name")
+    if kind_id == "terminal":
+        return ""
     if kind_id == "gtk":
         return _iface().get_string("gtk-theme")
     if kind_id == "icons":
@@ -239,6 +282,9 @@ def current(kind_id):
 
 def shell_status():
     """(available, enabled, message) for the User Themes extension."""
+    from orbits.desktop import detect
+    if detect() != "gnome":
+        return False, False, "Shell themes require a GNOME Shell session"
     if _user_theme_settings() is None:
         return False, False, "Install the “User Themes” GNOME extension (gnome-shell-extensions package)"
     try:
@@ -266,15 +312,25 @@ def _enable_user_theme_extension():
         return True
 
 
+@reversible("Theme applied")
 def apply(kind_id, name):
     """Apply a user-session theme. Plymouth goes through the privileged helper instead."""
-    if kind_id == "gtk":
+    if kind_id in ("gtk1", "gtk2"):
+        apply_legacy(kind_id, name)
+    elif kind_id == "sounds":
+        sound = Gio.Settings.new("org.gnome.desktop.sound")
+        sound.set_string("theme-name", name)
+        sound.set_boolean("event-sounds", True)
+    elif kind_id == "gtk":
         _iface().set_string("gtk-theme", name)
     elif kind_id == "icons":
         _iface().set_string("icon-theme", name)
     elif kind_id == "cursors":
         _iface().set_string("cursor-theme", name)
     elif kind_id == "shell":
+        from orbits.desktop import detect
+        if detect() != "gnome":
+            raise RuntimeError("Shell themes require a GNOME Shell session")
         s = _user_theme_settings()
         if s is None:
             raise RuntimeError(shell_status()[2])
@@ -284,6 +340,50 @@ def apply(kind_id, name):
     else:
         raise ValueError(kind_id)
     Gio.Settings.sync()
+
+
+# Legacy GTK rc files are independent of the current GTK3/GTK4 theme.
+LEGACY_BEGIN = "# >>> Orbits legacy theme"
+LEGACY_END = "# <<< Orbits legacy theme"
+
+
+def legacy_current(kind_id):
+    path = HOME / (".gtkrc-2.0" if kind_id == "gtk2" else ".gtkrc")
+    try:
+        text = path.read_text()
+    except OSError:
+        return KINDS[kind_id].default
+    if kind_id == "gtk2":
+        matches = re.findall(r'^\s*gtk-theme-name\s*=\s*"([^"\n]+)"', text, re.M)
+    else:
+        matches = re.findall(r'^# Orbits GTK1 name: (.*)$', text, re.M)
+    return matches[-1] if matches else KINDS[kind_id].default
+
+
+def apply_legacy(kind_id, name):
+    if name and not NAME_RE.fullmatch(name):
+        raise ValueError("Invalid theme name")
+    path = HOME / (".gtkrc-2.0" if kind_id == "gtk2" else ".gtkrc")
+    if path.is_symlink():
+        raise RuntimeError(f"{path} is a symbolic link; edit it manually")
+    original = path.read_text() if path.exists() else ""
+    text = re.sub(r"(?ms)^" + re.escape(LEGACY_BEGIN) + r"\n.*?^" + re.escape(LEGACY_END) + r"\n?", "", original)
+    # Applying the default undoes only our managed block.
+    if name != KINDS[kind_id].default:
+        theme = next((t for t in installed(kind_id) if t.name == name), None)
+        if theme is None:
+            raise RuntimeError("Theme is not installed")
+        if kind_id == "gtk2":
+            directive = f'gtk-theme-name = "{name}"'
+        else:
+            include = str(theme.path / "gtk" / "gtkrc").replace("\\", "\\\\").replace('"', '\\"')
+            directive = f'# Orbits GTK1 name: {name}\ninclude "{include}"'
+        text = text.rstrip("\n") + f"\n{LEGACY_BEGIN}\n{directive}\n{LEGACY_END}\n"
+    if path.exists() and not path.with_name(path.name + ".orbits-backup").exists():
+        shutil.copyfile(path, path.with_name(path.name + ".orbits-backup"))
+    tmp = path.with_name(path.name + ".orbits-tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------- libadwaita (GTK4) theming
@@ -302,6 +402,7 @@ def libadwaita_state():
     return None, False
 
 
+@reversible("GTK4 theme applied")
 def apply_libadwaita(theme_dir: Path):
     src = theme_dir / "gtk-4.0"
     if not (src / "gtk.css").exists():
@@ -323,6 +424,7 @@ def apply_libadwaita(theme_dir: Path):
     LIBADWAITA_MARKER.write_text(theme_dir.name + "\n")
 
 
+@reversible("GTK4 theme removed")
 def remove_libadwaita():
     for name in LIBADWAITA_FILES:
         target = GTK4_CONFIG / name
@@ -461,6 +563,18 @@ def _safe_unpack(archive: Path, dest: Path):
 def find_themes(root: Path, kind: Kind, fallback_name="theme"):
     """(dir, target_name) pairs for every theme of `kind` inside an unpacked archive."""
     found = []
+    if kind.id == "terminal":
+        from orbits.terminal_schemes import find_schemes
+        used = set()
+        for path, scheme in find_schemes(root):
+            name = re.sub(r"[^A-Za-z0-9._+ ()-]", "-", path.stem).strip(" .-")[:90] or "terminal"
+            base, index = name, 2
+            while name in used:
+                name = f"{base}-{index}"
+                index += 1
+            used.add(name)
+            found.append((path, name))
+        return found
     candidates = [root] + sorted(p for p in root.rglob("*") if p.is_dir() and not p.is_symlink())
     for d in candidates:
         try:
@@ -607,11 +721,14 @@ class ThemeManager(GObject.Object):
         with tempfile.TemporaryDirectory(prefix="orbits-theme-") as tmp:
             tmp = Path(tmp)
             archive = tmp / (re.sub(r"[^A-Za-z0-9._-]", "_", download.name) or "download")
-            net.download(download.url, archive, report)
+            net.download(download.url, archive, report, checksum=getattr(download, "md5", ""))
             unpack = tmp / "unpacked"
             unpack.mkdir()
             try:
-                _safe_unpack(archive, unpack)
+                if kind.id == "terminal" and not zipfile.is_zipfile(archive) and not tarfile.is_tarfile(archive):
+                    shutil.copyfile(archive, unpack / archive.name)
+                else:
+                    _safe_unpack(archive, unpack)
             except (tarfile.TarError, zipfile.BadZipFile) as e:
                 raise RuntimeError(f"Couldn't unpack {download.name}: {e}")
             fallback = re.sub(r"\.(zip|tar(\.\w+)?|tgz|txz|tbz2?)$", "", download.name, flags=re.I) or item.title
@@ -646,7 +763,12 @@ class ThemeManager(GObject.Object):
                     if not _read_marker(dest):
                         raise RuntimeError(f"A theme named “{name}” is already installed (not by Orbits)")
                     shutil.rmtree(dest)
-                shutil.copytree(src, dest, symlinks=True)
+                if kind.id == "terminal":
+                    from orbits.terminal_schemes import read_scheme
+                    dest.mkdir()
+                    (dest / "terminal.json").write_text(json.dumps(read_scheme(src), indent=2))
+                else:
+                    shutil.copytree(src, dest, symlinks=True)
                 (dest / MARKER).write_text(json.dumps(marker))
                 names.append(name)
         return {"key": item.key, "title": item.title, "names": names, "preview": marker["preview"],
@@ -660,6 +782,9 @@ class ThemeManager(GObject.Object):
         self.emit("changed")
 
     # ---- uninstall ---------------------------------------------------------
+    @reversible("Theme uninstalled", extra=lambda self, name: EntryState(self,
+        [key for key, entry in self.items.items() if name in entry.get("names", [])],
+        [base/name for base in self.kind.search_dirs if str(base).startswith(str(HOME)) and (base/name).exists()]))
     def uninstall_user(self, name):
         """Remove a theme from the user's folders (any user theme, Orbits-installed or not)."""
         kind = self.kind
@@ -674,6 +799,9 @@ class ThemeManager(GObject.Object):
             apply(kind.id, kind.default)
         self.refresh()
 
+    @reversible("Theme uninstalled", extra=lambda self, key: EntryState(self, [key],
+        [self.kind.user_dir/name for name in self.items.get(key, {}).get("names", [])
+         if self.kind.user_dir is not None and (self.kind.user_dir/name).exists()]))
     def uninstall(self, key):
         """Used by the store detail dialog: remove everything an item installed (user kinds)."""
         e = self.items.get(key)

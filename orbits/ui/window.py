@@ -1,3 +1,4 @@
+from orbits.i18n import _ as tr
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from orbits.config import settings
@@ -7,7 +8,7 @@ from orbits.sources import SOURCES
 class OrbitsWindow(Adw.ApplicationWindow):
     def __init__(self, **kw):
         super().__init__(**kw)
-        self.set_title("Orbits")
+        self.set_title(tr("Orbits"))
         self.set_icon_name("io.github.niruxx.Orbits")
         self.set_default_size(settings.get("window_width"), settings.get("window_height"))
         self.set_size_request(380, 500)
@@ -18,6 +19,8 @@ class OrbitsWindow(Adw.ApplicationWindow):
         self.toasts.set_child(self.root_stack)
         self.set_content(self.toasts)
 
+        from orbits.undo import subscribe
+        self._undo_unsubscribe = subscribe(self._offer_undo)
         self._main_built = False
         if settings.get("welcome_done"):
             self._show_main(animate=False)
@@ -70,20 +73,22 @@ class OrbitsWindow(Adw.ApplicationWindow):
         entries = [("explore", s.id, s.name, s.icon) for s in SOURCES]
         entries += [("collection", "looks", "Looks", "preferences-desktop-appearance-symbolic"),
                     ("collection", "library", "Library", "folder-pictures-symbolic"),
-                    ("collection", "updates", "Updates", "software-update-available-symbolic")]
+                    ("collection", "updates", "Updates", "software-update-available-symbolic"),
+                    ("collection", "downloads", "Downloads", "folder-download-symbolic")]
         entries += [("fonts", s.id, s.name, s.icon) for s in FONT_SOURCES]
         entries += [("fonts", "my-fonts", "My Fonts", "preferences-desktop-font-symbolic")]
         from orbits.themes import KINDS
 
         entries += [("themes", f"theme-{k.id}", k.title, k.icon) for k in KINDS.values()]
         entries += [("themes", "app-colors", "App Colors", "preferences-color-symbolic")]
+        entries += [("themes", "bootloader", "Bootloader Themes", "drive-harddisk-symbolic")]
         entries += [("system", "gdm", "Login Screen", "system-lock-screen-symbolic")]
         font_sources = {s.id: s for s in FONT_SOURCES}
         for section, pid, title, icon in entries:
             row = Gtk.ListBoxRow()
             box = Gtk.Box(spacing=12, margin_start=6, margin_end=6, margin_top=8, margin_bottom=8)
             box.append(Gtk.Image(icon_name=icon))
-            box.append(Gtk.Label(label=title, xalign=0, hexpand=True))
+            box.append(Gtk.Label(label=tr(title), xalign=0, hexpand=True))
             if pid == "library":
                 self.library_count = Gtk.Label(css_classes=["dim-label", "caption"])
                 box.append(self.library_count)
@@ -104,6 +109,9 @@ class OrbitsWindow(Adw.ApplicationWindow):
                 page = GdmPage(self)
             elif pid == "my-fonts":
                 page = FontsPage(self)
+            elif pid == "downloads":
+                from orbits.ui.downloads_page import DownloadsPage
+                page = DownloadsPage(self)
             elif pid == "updates":
                 from orbits.ui.updates_page import UpdatesPage
 
@@ -114,6 +122,10 @@ class OrbitsWindow(Adw.ApplicationWindow):
                 from orbits.ui.looks_page import LooksPage
 
                 page = LooksPage(self)
+            elif pid == "bootloader":
+                from orbits.ui.boot_page import BootPage
+
+                page = BootPage(self)
             elif pid == "app-colors":
                 from orbits.ui.colors_page import ColorsPage
 
@@ -131,18 +143,23 @@ class OrbitsWindow(Adw.ApplicationWindow):
 
         sb_header = Adw.HeaderBar()
         menu = Gio.Menu()
-        menu.append("Preferences", "app.preferences")
-        menu.append("System Check", "app.system-check")
-        menu.append("Welcome Tour", "app.welcome")
-        menu.append("About Orbits", "app.about")
-        sb_header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, tooltip_text="Main Menu"))
+        menu.append(tr("Search Everywhere"), "app.global-search")
+        menu.append(tr("Quick Switcher"), "app.quick-switcher")
+        menu.append(tr("Preferences"), "app.preferences")
+        menu.append(tr("System Check"), "app.system-check")
+        menu.append(tr("Welcome Tour"), "app.welcome")
+        menu.append(tr("About Orbits"), "app.about")
+        search_button = Gtk.Button(icon_name="system-search-symbolic", tooltip_text=tr("Search Everywhere (Ctrl+K)"))
+        search_button.connect("clicked", lambda *_: self.get_application().activate_action("global-search", None))
+        sb_header.pack_start(search_button)
+        sb_header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, tooltip_text=tr("Main Menu")))
         sb_view = Adw.ToolbarView()
         sb_view.add_top_bar(sb_header)
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         scroller.set_child(self.sidebar)
         sb_view.set_content(scroller)
-        self.split.set_sidebar(Adw.NavigationPage(title="Orbits", child=sb_view))
-        self.content_page = Adw.NavigationPage(title="Explore", child=self.content_stack)
+        self.split.set_sidebar(Adw.NavigationPage(title=tr("Orbits"), child=sb_view))
+        self.content_page = Adw.NavigationPage(title=tr("Explore"), child=self.content_stack)
         self.split.set_content(self.content_page)
 
         bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 720sp"))
@@ -168,7 +185,7 @@ class OrbitsWindow(Adw.ApplicationWindow):
 
     def _updates_found(self, updates):
         if updates:
-            self.toast(f"{len(updates)} update{'s' if len(updates) != 1 else ''} available", button="View",
+            self.toast(tr('{value0} update{value1} available').format(value0=len(updates), value1='s' if len(updates) != 1 else ''), button="View",
                        action=lambda: self.navigate("updates"))
 
     def _sidebar_header(self, row, before):
@@ -218,6 +235,22 @@ class OrbitsWindow(Adw.ApplicationWindow):
         if hasattr(page, method):
             getattr(page, method)(*args)
 
+    def _offer_undo(self, record):
+        def offer():
+            def undo():
+                try:
+                    if record.undo() is False:
+                        return
+                    for page in getattr(self, 'pages', {}).values():
+                        if hasattr(page, 'reload') and not hasattr(page, 'source'):
+                            page.reload()
+                    self.toast(tr("Change undone"))
+                except Exception as error:
+                    self.toast(str(error), timeout=6)
+            self.toast(record.label, timeout=10, button="Undo", action=undo)
+            return False
+        GLib.idle_add(offer)
+
     def toast(self, text, timeout=3, button=None, action=None):
         t = Adw.Toast(title=text, timeout=timeout)
         if button and action:
@@ -225,11 +258,37 @@ class OrbitsWindow(Adw.ApplicationWindow):
             t.connect("button-clicked", lambda *_: action())
         self.toasts.add_toast(t)
 
+    def open_search_result(self, record):
+        self._show_main()
+        self.navigate(record['page'])
+        page = self.pages.get(record['page'])
+        if record['kind'] == 'wallpaper':
+            from orbits.ui.library_page import LibraryDialog
+            entry = page.lib.items.get(record['key'])
+            if entry:
+                LibraryDialog(page, entry).present(self)
+        elif record['kind'] == 'font':
+            page.search.set_text(record['title'])
+            page.search.grab_focus()
+        elif record['kind'] == 'look':
+            from orbits import looks
+            look = next((item for item in looks.get_store().looks() if item['_dir'].endswith('/'+record['key'])), None)
+            if look:
+                page.apply(look)
+        elif record['kind'] == 'theme':
+            page.stack.set_visible_child_name('installed')
+            page.reload()
+            for card in page.cards:
+                if card.theme.meta.get('key') == record['key'] or card.theme.name == record.get('theme_name'):
+                    card.get_parent().grab_focus()
+                    break
+
     def use_for_login_screen(self, path):
         self.navigate("gdm")
         self.pages["gdm"].set_background_image(path)
 
     def _on_close(self, *_):
+        self._undo_unsubscribe()
         w, h = self.get_default_size()
         if not self.is_maximized():
             settings.data["window_width"], settings.data["window_height"] = w, h

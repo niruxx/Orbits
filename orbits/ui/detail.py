@@ -1,5 +1,9 @@
 """Detail dialog for an online wallpaper."""
+from orbits.i18n import _ as tr
 from gi.repository import Adw, Gtk
+
+from orbits import net
+from orbits.theme_sources import web_url
 
 from orbits.ui.widgets import CoverPicture, human_size, load_texture_into, open_uri
 
@@ -8,18 +12,18 @@ class DetailDialog(Adw.Dialog):
     def __init__(self, page, item):
         super().__init__(title=item.title, content_width=940, content_height=760)
         self.page, self.item, self.lib = page, item, page.lib
+        self._closed = False
+        self._comment_page = 0
+        self._comments_busy = False
+        self._seen_comments = set()
 
         hero = Gtk.Overlay(css_classes=["detail-hero"], overflow=Gtk.Overflow.HIDDEN, height_request=440)
         pic = CoverPicture(860, 440, hexpand=True)
         hero.set_child(pic)
         spinner = Adw.Spinner(width_request=40, height_request=40, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
         hero.add_overlay(spinner)
-        # show the thumbnail immediately, then upgrade to the full preview
-        load_texture_into(pic, url=item.thumb_url or item.preview_url)
-        if item.preview_url and item.preview_url != item.thumb_url:
-            load_texture_into(pic, url=item.preview_url, spinner=spinner)
-        else:
-            spinner.set_visible(False)
+        load_texture_into(pic, url=item.preview_url or item.thumb_url,
+                          fallback_url=item.thumb_url, spinner=spinner)
 
         title = Gtk.Label(label=item.title, xalign=0, wrap=True, css_classes=["detail-title"])
         meta = " · ".join(x for x in [item.author and f"by {item.author}", item.resolution, item.stats] if x)
@@ -50,22 +54,29 @@ class DetailDialog(Adw.Dialog):
         if item.description:
             content.append(Gtk.Label(label=item.description[:900], xalign=0, wrap=True, margin_top=10,
                                      selectable=True))
+        if callable(getattr(page.source, "fetch_details", None)):
+            self._store_content(content)
         if len(item.downloads) > 1:
-            files = Adw.PreferencesGroup(title="Files", margin_top=18,
-                                         description="This item offers several downloads; install the one you want.")
+            files = Adw.PreferencesGroup(title=tr("Files"), margin_top=18,
+                                         description=tr("This item offers several downloads; install the one you want."))
             for d in item.downloads:
-                row = Adw.ActionRow(title=d.name, subtitle=human_size(d.size) if d.size else "")
+                row = Adw.ActionRow(title=d.name, subtitle=human_size(d.size) if d.size else "", use_markup=False)
                 b = Gtk.Button(icon_name="folder-download-symbolic", valign=Gtk.Align.CENTER,
-                               css_classes=["flat"], tooltip_text="Install this file")
+                               css_classes=["flat"], tooltip_text=tr("Install this file"))
                 b.connect("clicked", lambda _b, d=d: self._install(d))
                 row.add_suffix(b)
                 files.add(row)
             content.append(files)
 
         header = Adw.HeaderBar()
-        if item.page_url:
-            web = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in Browser")
-            web.connect("clicked", lambda *_: open_uri(self, item.page_url))
+        source_url = web_url(item.page_url)
+        if source_url:
+            if not getattr(page, "wallpaper_extras", True):
+                web = Gtk.Button(child=Adw.ButtonContent(label=tr("Open Source"), icon_name="external-link-symbolic"),
+                                 tooltip_text=source_url)
+            else:
+                web = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text=tr("Open in Browser"))
+            web.connect("clicked", lambda *_: open_uri(self, source_url))
             header.pack_start(web)
         view = Adw.ToolbarView()
         view.add_top_bar(header)
@@ -74,8 +85,85 @@ class DetailDialog(Adw.Dialog):
         self.set_child(view)
 
         self._handler = self.lib.connect("changed", lambda *_: self._sync())
-        self.connect("closed", lambda *_: self.lib.disconnect(self._handler))
+        self.connect("closed", self._on_closed)
         self._sync()
+
+    def _on_closed(self, *_):
+        self._closed = True
+        self.lib.disconnect(self._handler)
+
+    def _store_content(self, content):
+        self.store_group = Adw.PreferencesGroup(title=tr("Store Details"), margin_top=18)
+        self.store_status = Adw.ActionRow(title=tr("Loading ratings and changelog…"))
+        self.store_group.add(self.store_status)
+        content.append(self.store_group)
+        self.comment_group = Adw.PreferencesGroup(title=tr("Comments"), margin_top=18)
+        self.comment_status = Adw.ActionRow(title=tr("Loading comments…"))
+        self.comment_group.add(self.comment_status)
+        self.comment_more = Gtk.Button(label=tr("Load More Comments"), halign=Gtk.Align.CENTER, visible=False)
+        self.comment_more.connect("clicked", lambda *_: self._load_comments())
+        content.append(self.comment_group)
+        content.append(self.comment_more)
+        def done(data, error):
+            if self._closed:
+                return
+            if error:
+                self.store_status.set_title(tr("Store details unavailable"))
+                self.store_status.set_subtitle(str(error))
+                if not hasattr(self, "_store_retry"):
+                    self._store_retry = Gtk.Button(label=tr("Retry"), valign=Gtk.Align.CENTER)
+                    self._store_retry.connect("clicked", lambda *_: net.run_async(self.page.source.fetch_details, done, self.item.id))
+                    self.store_status.add_suffix(self._store_retry)
+                self._store_retry.set_visible(True)
+                return
+            if hasattr(self, "_store_retry"):
+                self._store_retry.set_visible(False)
+            self.store_status.set_title(f"Rating: {data['score']:g}/100" if data["score"] is not None else "No rating available")
+            self.store_status.set_subtitle(" · ".join(part for part in (data["version"], data["changed"]) if part))
+            row = Adw.ExpanderRow(title=tr("Changelog"), subtitle=tr("Expand to read version notes"))
+            row.add_row(Adw.ActionRow(title=tr("Release notes"), subtitle=data["changelog"] or "The author has not supplied a changelog.",
+                                     subtitle_lines=0, subtitle_selectable=True, use_markup=False))
+            self.store_group.add(row)
+        net.run_async(self.page.source.fetch_details, done, self.item.id)
+        self._load_comments()
+
+    def _load_comments(self):
+        if self._comments_busy or self._closed:
+            return
+        self._comments_busy = True
+        self.comment_more.set_sensitive(False)
+        def done(result, error):
+            self._comments_busy = False
+            if self._closed:
+                return
+            self.comment_more.set_sensitive(True)
+            if error:
+                self.comment_status.set_title(tr("Comments unavailable"))
+                self.comment_status.set_subtitle(str(error))
+                self.comment_more.set_label(tr("Retry Comments"))
+                self.comment_more.set_visible(True)
+                return
+            records, more = result
+            self.comment_status.set_visible(False)
+            if not records and self._comment_page == 0:
+                self.comment_status.set_title(tr("No comments yet"))
+                self.comment_status.set_visible(True)
+            for record in records:
+                identity = record["id"] or (record["author"],record["date"],record["text"])
+                if identity in self._seen_comments:
+                    continue
+                self._seen_comments.add(identity)
+                title = ("↳ " if record["depth"] else "") + record["author"]
+                if record["subject"]:
+                    title += " · " + record["subject"]
+                row = Adw.ActionRow(title=title, subtitle=record["text"], subtitle_lines=0,
+                                    subtitle_selectable=True, use_markup=False)
+                row.set_tooltip_text(record["date"])
+                self.comment_group.add(row)
+            self._comment_page += 1
+            self.comment_more.set_label(tr("Load More Comments"))
+            self.comment_more.set_visible(more)
+        net.run_async(self.page.source.fetch_comments, done, self.item.id, self._comment_page)
 
     def _btn(self, label, css, cb, icon=None):
         b = Gtk.Button(css_classes=["pill", *css])
@@ -104,7 +192,7 @@ class DetailDialog(Adw.Dialog):
                           self.page.apply_icon)
                 return
             menu = Gtk.MenuButton(icon_name="view-more-symbolic", css_classes=["circular"], valign=Gtk.Align.CENTER,
-                                  tooltip_text="More")
+                                  tooltip_text=tr("More"))
             pop = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             for label, cb in [
                 ("Set as Lock Screen", lambda: self.lib.apply(entry["files"][0], desktop=False, lockscreen=True)),

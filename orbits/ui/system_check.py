@@ -1,4 +1,5 @@
 """System Check dialog: which Orbits features work on this machine."""
+from orbits.i18n import _ as tr
 from gi.repository import Adw, Gtk
 
 from orbits import net
@@ -11,7 +12,7 @@ AREA_ICONS = {"General": "computer-symbolic", "Login Screen": "system-lock-scree
 
 class SystemCheckDialog(Adw.Dialog):
     def __init__(self):
-        super().__init__(title="System Check", content_width=620, content_height=680)
+        super().__init__(title=tr("System Check"), content_width=620, content_height=680)
         self.page = Adw.PreferencesPage()
         spinner = Adw.Spinner(width_request=40, height_request=40, halign=Gtk.Align.CENTER,
                               valign=Gtk.Align.CENTER, vexpand=True)
@@ -26,7 +27,7 @@ class SystemCheckDialog(Adw.Dialog):
 
     def _show(self, checks, err):
         if err:
-            self.page.add(Adw.PreferencesGroup(title="Couldn't check this system", description=str(err)))
+            self.page.add(Adw.PreferencesGroup(title=tr("Couldn't check this system"), description=str(err)))
             self.stack.set_visible_child_name("results")
             return
         problems = [c for c in checks if not c.ok and c.level != "info"]

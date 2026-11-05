@@ -193,5 +193,104 @@ class TreeCheckTests(HelperTestCase):
             H.read_user_file(str(self.tmp / "link"))
 
 
+
+class BootloaderTests(HelperTestCase):
+    def setUp(self):
+        super().setUp()
+        self._boot = (H.GRUB_DEFAULT, H.ESP_CANDIDATES, H.GRUB_DIRS, H.grub_mkconfig)
+        esp = self.tmp / "esp"
+        (esp / "EFI" / "refind").mkdir(parents=True)
+        self.conf = esp / "EFI" / "refind" / "refind.conf"
+        self.conf.write_text("timeout 5\ninclude themes/old/theme.conf\n")
+        H.ESP_CANDIDATES = [str(esp)]
+        (self.tmp / "grub" / "themes").mkdir(parents=True)
+        H.GRUB_DIRS = [str(self.tmp / "grub")]
+        H.GRUB_DEFAULT = str(self.tmp / "default-grub")
+        Path(H.GRUB_DEFAULT).write_text('GRUB_TIMEOUT=5\nGRUB_TERMINAL_OUTPUT="console"\n#GRUB_THEME="/path/to/gfxtheme"\n')
+        self.src = self.tmp / "src"
+        self.src.mkdir()
+        (self.src / "theme.conf").write_text("banner bg.png\n")
+        (self.src / "theme.txt").write_text("title-text: \"\"\n")
+
+    def tearDown(self):
+        H.GRUB_DEFAULT, H.ESP_CANDIDATES, H.GRUB_DIRS, H.grub_mkconfig = self._boot
+        super().tearDown()
+
+    def test_refind_install_apply_reset(self):
+        H.cmd_boot_theme_install("refind", str(self.src), "neat")
+        self.assertTrue((self.conf.parent / "themes" / "neat" / ".orbits.json").exists())
+        H.cmd_boot_theme_apply("refind", "neat")
+        self.assertEqual(H.refind_current_theme(), "neat")
+        H.cmd_boot_theme_apply("refind", "neat")  # re-apply keeps a single managed block
+        self.assertEqual(self.conf.read_text().count(H.REFIND_BEGIN), 1)
+        H.cmd_boot_theme_reset("refind")
+        self.assertEqual(self.conf.read_text(), "timeout 5\ninclude themes/old/theme.conf\n")
+        self.assertTrue(os.path.exists(str(self.conf) + ".orbits-backup"))
+
+    def test_grub_apply_and_reset_restore_config(self):
+        H.grub_mkconfig = lambda: None  # no real GRUB in tests
+        original = Path(H.GRUB_DEFAULT).read_text()
+        H.cmd_boot_theme_install("grub", str(self.src), "Vimix")
+        H.cmd_boot_theme_apply("grub", "Vimix")
+        text = Path(H.GRUB_DEFAULT).read_text()
+        self.assertIn(f'GRUB_THEME="{self.tmp}/grub/themes/Vimix/theme.txt"', text)
+        self.assertIn('# Orbits: disabled', text)
+        self.assertEqual([ln for ln in text.splitlines() if ln.startswith("GRUB_THEME=")], [f'GRUB_THEME="{self.tmp}/grub/themes/Vimix/theme.txt"'])
+        H.cmd_boot_theme_reset("grub")
+        restored = Path(H.GRUB_DEFAULT).read_text()
+        self.assertIn('GRUB_TERMINAL_OUTPUT="console"', restored)
+        self.assertNotIn("Vimix", restored)
+        self.assertEqual(sorted(restored.splitlines()), sorted(original.splitlines()))
+
+    def test_refind_names_with_spaces_and_active_removal(self):
+        H.cmd_boot_theme_install("refind", str(self.src), "My Theme")
+        H.cmd_boot_theme_apply("refind", "My Theme")
+        self.assertIn('include "themes/My Theme/theme.conf"', self.conf.read_text())
+        self.assertEqual(H.refind_current_theme(), "My Theme")
+        H.cmd_boot_theme_remove("refind", "My Theme")
+        self.assertEqual(H.refind_current_theme(), "old")
+        self.assertFalse((self.conf.parent / "themes" / "My Theme").exists())
+
+    def test_grub_failure_restores_defaults_and_generated_menu(self):
+        defaults = Path(H.GRUB_DEFAULT)
+        cfg = Path(H.GRUB_DIRS[0]) / "grub.cfg"
+        cfg.write_text("original menu")
+        original = defaults.read_bytes()
+        H.cmd_boot_theme_install("grub", str(self.src), "neat")
+
+        def fail():
+            cfg.write_text("incomplete menu")
+            raise RuntimeError("generation failed")
+
+        H.grub_mkconfig = fail
+        with self.assertRaisesRegex(RuntimeError, "generation failed"):
+            H.cmd_boot_theme_apply("grub", "neat")
+        self.assertEqual(defaults.read_bytes(), original)
+        self.assertEqual(cfg.read_text(), "original menu")
+
+    def test_grub_reads_last_assignment_with_shell_quotes(self):
+        Path(H.GRUB_DEFAULT).write_text("GRUB_THEME=old\nexport GRUB_THEME='/boot/My Theme/theme.txt' # mine\n")
+        self.assertEqual(H.grub_current_theme(), "/boot/My Theme/theme.txt")
+
+    def test_symlink_destination_is_rejected(self):
+        root = self.conf.parent / "themes"
+        root.mkdir()
+        (root / "linked").symlink_to(self.src, target_is_directory=True)
+        for action in (lambda: H.cmd_boot_theme_install("refind", str(self.src), "linked"),
+                       lambda: H.cmd_boot_theme_apply("refind", "linked"),
+                       lambda: H.cmd_boot_theme_remove("refind", "linked")):
+            with self.assertRaises(PermissionError):
+                action()
+        self.assertTrue((self.src / "theme.conf").exists())
+
+    def test_boot_remove_refuses_foreign_themes(self):
+        (self.conf.parent / "themes" / "theirs").mkdir(parents=True)
+        (self.conf.parent / "themes" / "theirs" / "theme.conf").write_text("")
+        with self.assertRaises(PermissionError):
+            H.cmd_boot_theme_remove("refind", "theirs")
+        with self.assertRaises(ValueError):
+            H.cmd_boot_theme_install("refind", str(self.src), "../../x")
+
+
 if __name__ == "__main__":
     unittest.main()

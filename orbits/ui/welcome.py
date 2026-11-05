@@ -1,4 +1,5 @@
 """First-launch welcome carousel."""
+from orbits.i18n import _ as tr
 from gi.repository import Adw, Gtk
 
 PAGES = [
@@ -77,16 +78,16 @@ class WelcomeView(Adw.Bin):
         self.carousel.connect("page-changed", self._on_page_changed)
 
         header = Adw.HeaderBar(show_title=False, css_classes=["flat"])
-        self.skip = Gtk.Button(label="Skip", css_classes=["flat"])
+        self.skip = Gtk.Button(label=tr("Skip"), css_classes=["flat"])
         self.skip.connect("clicked", lambda *_: self.on_done())
         header.pack_end(self.skip)
         self.back = Gtk.Button(icon_name="go-previous-symbolic", css_classes=["circular", "flat"],
-                               tooltip_text="Back", sensitive=False)
+                               tooltip_text=tr("Back"), sensitive=False)
         self.back.connect("clicked", lambda *_: self._go(-1))
         header.pack_start(self.back)
 
         dots = Adw.CarouselIndicatorDots(carousel=self.carousel)
-        self.next = Gtk.Button(label="Next", css_classes=["pill", "suggested-action", "welcome-next"],
+        self.next = Gtk.Button(label=tr("Next"), css_classes=["pill", "suggested-action", "welcome-next"],
                                halign=Gtk.Align.CENTER)
         self.next.connect("clicked", lambda *_: self._go(1))
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_bottom=32, margin_top=8)

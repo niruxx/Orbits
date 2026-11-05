@@ -40,12 +40,14 @@ class JsonStore:
         tmp = self.path.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.data, f, indent=2)
+        os.chmod(tmp, 0o600)
         os.replace(tmp, self.path)
 
 
 settings = JsonStore(
     CONFIG_DIR / "settings.json",
     {
+        "offline": False,
         "welcome_done": False,
         "register_in_gnome": True,
         "default_source": "kde",

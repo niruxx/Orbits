@@ -1,5 +1,3 @@
 import sys
-
-from orbits.application import main
-
+from orbits.entry import main
 sys.exit(main())

@@ -1,4 +1,5 @@
 """Updates page: store-installed wallpapers, themes and fonts with newer versions upstream."""
+from orbits.i18n import _ as tr
 import time
 
 from gi.repository import Adw, GLib, Gtk
@@ -33,22 +34,22 @@ class UpdatesPage(Adw.Bin):
         self.checker = get_checker()
         self.running = set()
 
-        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Updates", subtitle="Wallpapers, themes & fonts"))
-        self.check_btn = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Check for Updates")
+        header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title=tr("Updates"), subtitle=tr("Wallpapers, themes & fonts")))
+        self.check_btn = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=tr("Check for Updates"))
         self.check_btn.connect("clicked", lambda *_: self.checker.check())
         header.pack_start(self.check_btn)
-        self.all_btn = Gtk.Button(label="Update All", css_classes=["suggested-action"])
+        self.all_btn = Gtk.Button(label=tr("Update All"), css_classes=["suggested-action"])
         self.all_btn.connect("clicked", lambda *_: self.update_all())
         header.pack_end(self.all_btn)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-        self.empty = Adw.StatusPage(icon_name="object-select-symbolic", title="Everything Is Up to Date",
+        self.empty = Adw.StatusPage(icon_name="object-select-symbolic", title=tr("Everything Is Up to Date"),
                                     vexpand=True)
-        check = Gtk.Button(label="Check Now", css_classes=["pill"], halign=Gtk.Align.CENTER)
+        check = Gtk.Button(label=tr("Check Now"), css_classes=["pill"], halign=Gtk.Align.CENTER)
         check.connect("clicked", lambda *_: self.checker.check())
         self.empty.set_child(check)
         self.stack.add_named(self.empty, "empty")
-        spinner_page = Adw.StatusPage(title="Checking for Updates…", vexpand=True,
+        spinner_page = Adw.StatusPage(title=tr("Checking for Updates…"), vexpand=True,
                                       child=Adw.Spinner(width_request=40, height_request=40,
                                                         halign=Gtk.Align.CENTER))
         self.stack.add_named(spinner_page, "checking")
@@ -57,7 +58,7 @@ class UpdatesPage(Adw.Bin):
         self.group = Adw.PreferencesGroup()
         self.page.add(self.group)
         opts = Adw.PreferencesGroup()
-        auto = Adw.SwitchRow(title="Check Automatically", subtitle="Once a day, a few seconds after Orbits starts",
+        auto = Adw.SwitchRow(title=tr("Check Automatically"), subtitle=tr("Once a day, a few seconds after Orbits starts"),
                              active=bool(settings.get("auto_check_updates", True)))
         auto.connect("notify::active", lambda r, _p: settings.set("auto_check_updates", r.get_active()))
         opts.add(auto)
@@ -93,12 +94,11 @@ class UpdatesPage(Adw.Bin):
             self.empty.set_description(desc)
             self.stack.set_visible_child_name("empty")
             return
-        self.group.set_title(f"{len(c.updates)} update{'s' if len(c.updates) != 1 else ''} available")
+        self.group.set_title(tr('{value0} update{value1} available').format(value0=len(c.updates), value1='s' if len(c.updates) != 1 else ''))
         self.group.set_description(desc)
         for u in sorted(c.updates, key=lambda u: (u.kind, u.title.lower())):
             row = Adw.ActionRow(title=GLib.markup_escape_text(u.title),
-                                subtitle=f"{u.kind} · updated {_date(_ts(u.remote_changed))} · "
-                                         f"installed {_date(u.installed_at)}")
+                                subtitle=tr('{value0} · updated {value1} · installed {value2}').format(value0=u.kind, value1=_date(_ts(u.remote_changed)), value2=_date(u.installed_at)))
             if u.preview:
                 pic = CoverPicture(64, 40, css_classes=["card"], valign=Gtk.Align.CENTER)
                 load_texture_into(pic, url=u.preview)
@@ -108,7 +108,7 @@ class UpdatesPage(Adw.Bin):
             if u.key in self.running:
                 row.add_suffix(Adw.Spinner(valign=Gtk.Align.CENTER))
             else:
-                b = Gtk.Button(label="Update", valign=Gtk.Align.CENTER)
+                b = Gtk.Button(label=tr("Update"), valign=Gtk.Align.CENTER)
                 b.connect("clicked", lambda _b, u=u: self.update(u))
                 row.add_suffix(b)
             self.group.add(row)

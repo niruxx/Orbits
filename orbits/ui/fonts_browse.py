@@ -1,6 +1,8 @@
 """Online font browser (Google Fonts / Fontsource, Nerd Fonts)."""
+from orbits.i18n import _ as tr
 from gi.repository import Adw, GLib, GObject, Gtk, PangoCairo
 
+from orbits.config import settings
 from orbits import net
 from orbits.fonts import get_font_library, preview_font_file, register_preview
 from orbits.ui.font_actions import apply_menu_button, font_attrs
@@ -21,11 +23,11 @@ class FontCard(Gtk.Box):
                          width_request=300)
         self.page, self.item = page, item
         top = Gtk.Box(spacing=8)
-        self.big = Gtk.Label(label="Aa", xalign=0, css_classes=["font-card-glyphs"], hexpand=True)
+        self.big = Gtk.Label(label=tr("Aa"), xalign=0, css_classes=["font-card-glyphs"], hexpand=True)
         top.append(self.big)
         self.badge = Gtk.Label(css_classes=["font-badge"], valign=Gtk.Align.START, visible=False)
         top.append(self.badge)
-        self.install_btn = Gtk.Button(icon_name="folder-download-symbolic", tooltip_text="Install",
+        self.install_btn = Gtk.Button(icon_name="folder-download-symbolic", tooltip_text=tr("Install"),
                                       css_classes=["circular"], valign=Gtk.Align.START)
         self.install_btn.connect("clicked", lambda *_: page.install(item))
         top.append(self.install_btn)
@@ -85,14 +87,14 @@ class FontBrowsePage(Adw.Bin):
         self._loaded_once = False
 
         header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title=source.name, subtitle=source.tagline))
-        self.search_btn = Gtk.ToggleButton(icon_name="system-search-symbolic", tooltip_text="Search (Ctrl+F)")
+        self.search_btn = Gtk.ToggleButton(icon_name="system-search-symbolic", tooltip_text=tr("Search (Ctrl+F)"))
         header.pack_start(self.search_btn)
         if len(source.sorts) > 1:
             dd = Gtk.DropDown.new_from_strings([label for _, label in source.sorts])
             dd.connect("notify::selected", self._on_sort)
             header.pack_end(dd)
         self.search_bar = Gtk.SearchBar()
-        self.search_entry = Gtk.SearchEntry(placeholder_text=f"Search {source.name}…")
+        self.search_entry = Gtk.SearchEntry(placeholder_text=tr('Search {value0}…').format(value0=source.name))
         self.search_entry.connect("search-changed", self._on_search)
         self.search_bar.set_child(Adw.Clamp(maximum_size=520, child=self.search_entry))
         self.search_bar.connect_entry(self.search_entry)
@@ -115,6 +117,8 @@ class FontBrowsePage(Adw.Bin):
                                 max_children_per_line=6, column_spacing=16, row_spacing=16, valign=Gtk.Align.START,
                                 margin_start=24, margin_end=24, margin_top=12, margin_bottom=32,
                                 css_classes=["font-grid"])
+        self.grid.set_activate_on_single_click(False)
+        self.grid.connect('child-activated', lambda _grid, child:self.open_detail(child.get_child().item))
         self.more = Adw.Spinner(height_request=32, margin_bottom=24, visible=False)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         body.append(self.grid)
@@ -134,6 +138,8 @@ class FontBrowsePage(Adw.Bin):
 
         view = Adw.ToolbarView(top_bar_style=Adw.ToolbarStyle.FLAT)
         view.add_top_bar(header)
+        self.offline_banner = Adw.Banner(title=tr("You are offline — showing a cached catalogue"), revealed=False)
+        view.add_top_bar(self.offline_banner)
         view.add_top_bar(self.search_bar)
         if source.categories:
             view.add_top_bar(Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER, child=chips,
@@ -175,6 +181,8 @@ class FontBrowsePage(Adw.Bin):
                     self.error.set_description(str(err))
                     self.stack.set_visible_child_name("error")
                 return
+            res, cached = res
+            self.offline_banner.set_revealed(cached or bool(settings.get("offline", False)))
             items, self.has_more = res
             for it in items:
                 if it.key not in self.cards:
@@ -187,7 +195,7 @@ class FontBrowsePage(Adw.Bin):
             self.page += 1
             GLib.timeout_add(300, self._fill, gen)
 
-        net.run_async(self.source.fetch, done, self.query, self.sort, self.category, self.page)
+        net.run_async(net.with_status, done, self.source.fetch, self.query, self.sort, self.category, self.page)
 
     def _fill(self, gen):
         adj = self.scroller.get_vadjustment()
@@ -217,7 +225,7 @@ class FontBrowsePage(Adw.Bin):
 
         def done(entry, err):
             if err:
-                self.window.toast(f"Font install failed: {err}", timeout=6)
+                self.window.toast(tr('Font install failed: {value0}').format(value0=err), timeout=6)
             else:
                 fams = entry["families"]
                 self.window.toast(f"Installed “{entry['family']}”" + (f" · {len(fams)} families" if len(fams) > 1
@@ -241,7 +249,7 @@ class FontDetailDialog(Adw.Dialog):
         box.append(self.display)
         box.append(Gtk.Label(label=" · ".join(x for x in [item.subtitle, item.license] if x), xalign=0,
                              css_classes=["dim-label"]))
-        self.entry = Gtk.Entry(text=SAMPLES.get(item.category, DEFAULT_SAMPLE), placeholder_text="Type to preview…",
+        self.entry = Gtk.Entry(text=SAMPLES.get(item.category, DEFAULT_SAMPLE), placeholder_text=tr("Type to preview…"),
                                margin_top=8)
         box.append(self.entry)
         self.samples = []
@@ -249,7 +257,7 @@ class FontDetailDialog(Adw.Dialog):
             lbl = Gtk.Label(xalign=0, wrap=True, css_classes=["font-detail-sample"])
             self.samples.append((lbl, size))
             box.append(lbl)
-        alpha = Gtk.Label(label="ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !?&@#%(){}",
+        alpha = Gtk.Label(label=tr("ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !?&@#%(){}"),
                           xalign=0, wrap=True, margin_top=12, css_classes=["dim-label"])
         self.samples.append((alpha, 16))
         box.append(alpha)
@@ -261,7 +269,7 @@ class FontDetailDialog(Adw.Dialog):
         header = Adw.HeaderBar()
         header.pack_end(self.buttons)
         if item.page_url:
-            web = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in Browser")
+            web = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text=tr("Open in Browser"))
             web.connect("clicked", lambda *_: open_uri(self, item.page_url))
             header.pack_start(web)
         view = Adw.ToolbarView()
@@ -300,13 +308,13 @@ class FontDetailDialog(Adw.Dialog):
         elif self.lib.is_installed(key):
             entry = self.lib.items[key]
             rm = Gtk.Button(css_classes=["destructive-action"])
-            rm.set_child(Adw.ButtonContent(label="Uninstall", icon_name="user-trash-symbolic"))
+            rm.set_child(Adw.ButtonContent(label=tr("Uninstall"), icon_name="user-trash-symbolic"))
             rm.connect("clicked", lambda *_: self.lib.uninstall_user(key))
             self.buttons.append(rm)
             self.buttons.append(apply_menu_button(self.page.window, lambda: entry["families"][0],
-                                                  lambda: entry, label="Apply"))
+                                                  lambda: entry, label=tr("Apply")))
         else:
             b = Gtk.Button(css_classes=["suggested-action"])
-            b.set_child(Adw.ButtonContent(label="Install", icon_name="folder-download-symbolic"))
+            b.set_child(Adw.ButtonContent(label=tr("Install"), icon_name="folder-download-symbolic"))
             b.connect("clicked", lambda *_: self.page.install(self.item))
             self.buttons.append(b)

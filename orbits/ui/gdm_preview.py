@@ -1,5 +1,12 @@
 """Live mock-up of the GDM login screen / lock screen, and the background renderer used for export."""
+from orbits.i18n import _ as tr
 import time
+import json
+import tempfile
+from pathlib import Path
+
+from orbits.gdm.backgrounds import background_path
+from orbits.wallpaper_tools import compose_monitors
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Graphene, Gsk, Gtk, Pango
 
@@ -73,6 +80,7 @@ class BackgroundArea(Gtk.Widget):
         self.params = {"mode": "default"}
         self.on_resize = on_resize
         self._last_w = 0
+        self.aspect = 16 / 9
 
     def do_get_request_mode(self):
         return Gtk.SizeRequestMode.HEIGHT_FOR_WIDTH
@@ -80,7 +88,7 @@ class BackgroundArea(Gtk.Widget):
     def do_measure(self, orientation, for_size):
         if orientation == Gtk.Orientation.HORIZONTAL:
             return (240, 940, -1, -1)
-        h = int((for_size if for_size > 0 else 940) * 9 / 16)
+        h = int((for_size if for_size > 0 else 940) / self.aspect)
         return (h, h, -1, -1)
 
     def do_snapshot(self, snapshot):
@@ -116,7 +124,7 @@ class GdmPreview(Gtk.Overlay):
         self.set_child(self.bg)
 
         # top bar
-        top = Gtk.CenterBox(valign=Gtk.Align.START, css_classes=["topbar"])
+        top = self.topbar = Gtk.CenterBox(valign=Gtk.Align.START, css_classes=["topbar"])
         self.clock = Gtk.Label()
         top.set_center_widget(self.clock)
         icons = Gtk.Box(spacing=6)
@@ -137,15 +145,15 @@ class GdmPreview(Gtk.Overlay):
         self.banner = Gtk.Label(css_classes=["banner"], wrap=True, max_width_chars=40,
                                 justify=Gtk.Justification.CENTER, margin_bottom=10)
         self.login.append(self.banner)
-        self.avatar = Gtk.Label(label="N", css_classes=["avatar-circle"], halign=Gtk.Align.CENTER)
+        self.avatar = Gtk.Label(label=tr("N"), css_classes=["avatar-circle"], halign=Gtk.Align.CENTER)
         self.login.append(self.avatar)
         self.user_name = Gtk.Label(css_classes=["user-name"])
         self.login.append(self.user_name)
         self.entry = Gtk.Box(css_classes=["fake-entry", "focused"], halign=Gtk.Align.CENTER, margin_top=4)
-        self.entry_label = Gtk.Label(label="Password", css_classes=["fake-entry-label"], valign=Gtk.Align.CENTER)
+        self.entry_label = Gtk.Label(label=tr("Password"), css_classes=["fake-entry-label"], valign=Gtk.Align.CENTER)
         self.entry.append(self.entry_label)
         self.login.append(self.entry)
-        self.restart_hint = Gtk.Label(label="Not listed?", css_classes=["lock-hint"], margin_top=6)
+        self.restart_hint = Gtk.Label(label=tr("Not listed?"), css_classes=["lock-hint"], margin_top=6)
         self.login.append(self.restart_hint)
         self.add_overlay(self.login)
 
@@ -161,7 +169,7 @@ class GdmPreview(Gtk.Overlay):
         self.lock.append(self.lock_time)
         self.lock.append(self.lock_date)
         self.add_overlay(self.lock)
-        self.lock_hint = Gtk.Label(label="Click or press a key to unlock", css_classes=["pill-hint"],
+        self.lock_hint = Gtk.Label(label=tr("Click or press a key to unlock"), css_classes=["pill-hint"],
                                    valign=Gtk.Align.END, halign=Gtk.Align.CENTER, margin_bottom=22)
         self.add_overlay(self.lock_hint)
 
@@ -191,20 +199,28 @@ class GdmPreview(Gtk.Overlay):
             net.run_async(work, lambda tex, err: tex and (setattr(self, "lock_texture", tex), self.refresh()))
 
     def _ensure_bg_texture(self):
-        path = self.model.get("bg_image")
-        if path == self.bg_texture_path:
+        variant = "light" if self.model.get("color_scheme") == "prefer-light" else "dark"
+        path = background_path(self.model.values, variant)
+        monitors = self.model.get("bg_monitors", [])
+        key = json.dumps([path, monitors, variant], sort_keys=True)
+        if key == self.bg_texture_path:
             return
-        self.bg_texture_path = path
+        self.bg_texture_path = key
         self.bg_texture = None
-        if not path:
+        if not path and not monitors:
             return
 
         def work():
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 1600, 1600, True)
-            return Gdk.Texture.new_for_pixbuf(pb)
+            with tempfile.TemporaryDirectory(prefix="orbits-login-layout-") as tmp:
+                source = path
+                if monitors:
+                    assignments = [dict(rec, path=rec.get(variant) or path) for rec in monitors]
+                    source = str(compose_monitors(assignments, Path(tmp) / "layout.png"))
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(source, 2560, 2560, True)
+                return Gdk.Texture.new_for_pixbuf(pb)
 
         def done(tex, err):
-            if path == self.bg_texture_path:
+            if key == self.bg_texture_path:
                 self.bg_texture = tex
                 self.refresh()
 
@@ -255,6 +271,16 @@ class GdmPreview(Gtk.Overlay):
             # user-session lock screen: blurred desktop wallpaper
             self.bg.params = {"mode": "image" if self.lock_texture else "default", "texture": self.lock_texture,
                               "blur_ref": 60, "dim": 0.35}
+        monitors = m.get("bg_monitors", []) if login else []
+        aspect = 16 / 9
+        if monitors:
+            width = max(r["x"] + r["width"] for r in monitors) - min(r["x"] for r in monitors)
+            height = max(r["y"] + r["height"] for r in monitors) - min(r["y"] for r in monitors)
+            if width > 0 and height > 0:
+                aspect = width / height
+        if self.bg.aspect != aspect:
+            self.bg.aspect = aspect
+            self.bg.queue_resize()
         self.bg.queue_draw()
 
         users = self._users
@@ -282,12 +308,17 @@ class GdmPreview(Gtk.Overlay):
         weight = int(m.get("clock_weight") or 800)
         font = m.get("font_name") or "Sans 11"
         family = Pango.FontDescription.from_string(font).get_family() or "Sans"
+        clock_family = (m.get("clock_font") or family).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", " ")
+        panel_opacity = m.get("panel_opacity", -1)
+        panel_css = (f".gdm-preview .topbar {{ background-color: rgba(0, 0, 0, {panel_opacity / 100:.2f}); }}\n"
+                     if panel_opacity >= 0 else "")
         self._css.load_from_string(
+            panel_css +
             f".gdm-preview label {{ color: {text}; font-family: \"{family}\"; }}\n"
             f".gdm-preview .topbar label {{ color: #ffffff; }}\n"
             f".gdm-preview .fake-entry.focused {{ box-shadow: inset 0 0 0 2px {accent}; }}\n"
             f".gdm-preview .lock-clock-time {{ font-size: {max(8, size_em * REAL_EM_PX * s):.1f}px;"
-            f" font-weight: {weight}; }}\n"
+            f' font-weight: {weight}; font-family: "{clock_family}"; }}\n'
             f".gdm-preview .lock-clock-date {{ font-size: {max(6, 1.818 * REAL_EM_PX * s):.1f}px; }}\n"
         )
         self._update_clock()

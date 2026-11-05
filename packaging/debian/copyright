@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Orbits
+Source: https://github.com/niruxx/Orbits
+
+Files: *
+Copyright: Orbits contributors
+License: GPL-3+
+ See /usr/share/common-licenses/GPL-3 on Debian systems, and the full
+ license included in the upstream LICENSE file.

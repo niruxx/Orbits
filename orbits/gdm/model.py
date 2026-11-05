@@ -70,6 +70,12 @@ DCONF_KEYS = [
 THEME_DEFAULTS = {
     "bg_mode": "default",          # default | image | color | gradient
     "bg_image": "",
+    "bg_image_light": "",
+    "bg_image_dark": "",
+    "bg_monitors": [],
+    "auto_reapply": False,
+    "clock_font": "",
+    "panel_opacity": -1,
     "bg_color": "#1e1e2e",
     "bg_color2": "#45475a",
     "bg_gradient": "vertical",     # vertical | horizontal
@@ -220,7 +226,7 @@ class GdmModel:
 
     def set(self, name, value):
         self.values[name] = value
-        if name in THEME_DEFAULTS:
+        if name in THEME_DEFAULTS or name == "applied_theme":
             self.store.data[name] = value
             self.store.save()
 
@@ -228,12 +234,12 @@ class GdmModel:
         return next((k for k in self.keys if k.name == name), None)
 
     # ---- spec ---------------------------------------------------------
-    def build_css(self):
+    def build_css(self, variant="dark"):
         v, rules = self.values, []
         mode = v["bg_mode"]
-        if mode == "image" and v["bg_image"]:
+        if mode == "image":
             rules.append("#lockDialogGroup {\n"
-                         "  background: #000000 url(\"resource:///org/gnome/shell/theme/orbits-background.jpg\");\n"
+                         f"  background: #000000 url(\"resource:///org/gnome/shell/theme/orbits-background-{variant}.jpg\");\n"
                          "  background-size: cover;\n  background-position: center;\n"
                          "  background-repeat: no-repeat;\n}")
         elif mode == "color":
@@ -253,14 +259,22 @@ class GdmModel:
             clock.append(f"  font-size: {v['clock_size']:.2f}em;")
         if v["clock_weight"]:
             clock.append(f"  font-weight: {int(v['clock_weight'])};")
+        if v.get("clock_font"):
+            family = v["clock_font"].replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", " ")
+            clock.append(f'  font-family: "{family}";')
+        if v.get("panel_opacity", -1) >= 0:
+            alpha = max(0, min(100, float(v["panel_opacity"]))) / 100
+            rules.append(f"#panel.login-screen {{ background-color: rgba(0, 0, 0, {alpha:.2f}); }}")
         if clock:
             rules.append(".unlock-dialog-clock .unlock-dialog-clock-time {\n" + "\n".join(clock) + "\n}")
         return "\n\n".join(rules)
 
-    def build_spec(self, background_png: str | None):
-        """background_png: path to the pre-rendered (blurred/dimmed) image, if bg_mode == image."""
-        css = self.build_css()
-        theme = {"css": css, "background": background_png} if css else None
+    def build_spec(self, background_png: dict | str | None):
+        """background_png contains rendered light/dark image paths (or a legacy single path)."""
+        css = {variant: self.build_css(variant) for variant in ("light", "dark")}
+        if isinstance(background_png, str):
+            background_png = {"light": background_png, "dark": background_png}
+        theme = {"css": css, "background": background_png} if any(css.values()) else None
         dconf = {}
         for dk in self.keys:
             if dk.name == "logo":
@@ -284,7 +298,8 @@ class GdmModel:
             "AutomaticLogin": self.values["autologin_user"] if self.values["autologin_enable"] else None,
             "WaylandEnable": None if self.values["wayland"] else "false",
         }
-        return {"theme": theme, "dconf": dconf, "logo_source": logo_source, "custom_conf": custom}
+        return {"theme": theme, "dconf": dconf, "logo_source": logo_source, "custom_conf": custom,
+                "auto_reapply": bool(self.values.get("auto_reapply"))}
 
     def write_spec(self, background_png):
         spec = self.build_spec(background_png)
