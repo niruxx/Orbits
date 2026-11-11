@@ -71,6 +71,9 @@ def fetch_look(record,destination):
                 if total>MAX_LOOK:raise ValueError("Community Look exceeds 512 MiB")
                 digest.update(chunk);output.write(chunk)
         if digest.hexdigest()!=record["sha256"]:raise ValueError("Community Look checksum did not match")
+        if urlparse(location).scheme == 'https':
+            from orbits.publishers import configured_verify
+            configured_verify(destination, location)
     except Exception:
         destination.unlink(missing_ok=True)
         raise

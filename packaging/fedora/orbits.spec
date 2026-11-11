@@ -9,7 +9,8 @@ BuildArch:      noarch
 BuildRequires:  meson ninja-build gettext python3-devel python3-gobject python3-pillow python3-fonttools
 BuildRequires:  gtk4 libadwaita glib2 fontconfig gsettings-desktop-schemas
 Requires:       python3-gobject python3-pillow python3-fonttools gtk4 libadwaita >= 1.7
-Requires:       glib2 polkit dconf fontconfig gsettings-desktop-schemas
+Requires:       bubblewrap glib2 polkit dconf fontconfig gsettings-desktop-schemas
+Suggests:       minisign
 Recommends:     gdm gnome-shell xdg-desktop-portal
 
 %description

@@ -65,7 +65,7 @@ class DownloadTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.manager = DownloadManager(self.root/'cache')
+        self.manager = DownloadManager(self.root/'cache', opener=__import__('urllib.request', fromlist=['urlopen']).urlopen)
         self.addCleanup(self.manager.close)
 
     def seed_partial(self, url, amount=100000):
@@ -349,3 +349,16 @@ class PackagingTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+# Unit suites execute trusted worker code in child processes; live isolation has
+# a separate required integration profile and never changes production behavior.
+def setUpModule():
+    from tests.parser_fixtures import run_worker
+    global _parser_fixture
+    _parser_fixture = patch('orbits.parser_sandbox.run', side_effect=run_worker)
+    _parser_fixture.start()
+
+
+def tearDownModule():
+    _parser_fixture.stop()

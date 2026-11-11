@@ -131,7 +131,10 @@ def main():
         except (OSError,ValueError,TypeError):pass
         attempt.write_text(json.dumps({"token":token,"attempted_at":time.time()}))
         try:
+            from orbits.integrity import verify_tree
+            verify_tree(folder)
             look=json.loads((folder/"look.json").read_text())
+            look["_dir"] = str(folder)
             loop=GLib.MainLoop();state={"finished":False,"notes":[]}
             def done(notes):state.update(finished=True,notes=notes);loop.quit()
             window=type("ScheduledWindow",(),{"pages":{},"toast":lambda _self,text,**_kwargs:print(text)})()

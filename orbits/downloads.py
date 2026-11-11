@@ -1,6 +1,7 @@
 """Queued, resumable transfers. No GTK or desktop dependencies."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from orbits.security import MAX_DOWNLOAD, inspect_archive
 import hashlib
 import json
 import os
@@ -30,6 +31,8 @@ class Transfer:
     received: int = 0
     total: int = 0
     error: str = ""
+    scan_result: str = "Not scanned"
+    publisher_result: str = "Publisher unverified"
     progress: object = None
     result: object = None
     run_lock: object = field(default_factory=threading.Lock, repr=False)
@@ -38,10 +41,13 @@ class Transfer:
 
 
 class DownloadManager:
-    def __init__(self, directory, opener=None, workers=2, changed=None, offline=None):
+    def __init__(self, directory, opener=None, workers=2, changed=None, offline=None, scanner=None, publisher=None):
+        self.publisher = publisher
+        self.scanner = scanner
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.opener = opener or urllib.request.urlopen
+        from orbits.safe_network import open_remote
+        self.opener = opener or open_remote
         self.offline = offline or (lambda:False)
         self.changed = changed or (lambda: None)
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix='orbits-download')
@@ -154,6 +160,12 @@ class DownloadManager:
             info = {}
         cached_complete = complete.is_file() and info.get('complete')
         if cached_complete:
+            if info.get('sha256'):
+                with complete.open('rb') as stream:
+                    actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+                if actual != info['sha256']:
+                    complete.unlink(missing_ok=True)
+                    raise RuntimeError('Cached download changed since verification; retry to fetch it again')
             self._verify(complete, job)
             if job.checksum or self.offline():
                 return self._deliver(complete, job, info)
@@ -200,6 +212,9 @@ class DownloadManager:
                 total = int(response.headers.get('Content-Length') or 0)
             else:
                 raise RuntimeError(f'Download server returned HTTP {status}')
+            if total > MAX_DOWNLOAD or offset > MAX_DOWNLOAD:
+                partial.unlink(missing_ok=True)
+                raise RuntimeError('Download exceeds the 512 MiB limit')
             info = {'etag':response.headers.get('ETag'), 'modified':response.headers.get('Last-Modified'),
                     'total':total, 'type':response.headers.get_content_type(), 'url':response.geturl(),
                     'complete':False, 'updated':time.time()}
@@ -210,6 +225,8 @@ class DownloadManager:
                     chunk = response.read(1 << 16)
                     if not chunk:
                         break
+                    if job.received + len(chunk) > MAX_DOWNLOAD:
+                        raise RuntimeError("Download exceeds the 512 MiB limit")
                     stream.write(chunk)
                     job.received += len(chunk)
                     if job.progress and total:
@@ -221,6 +238,8 @@ class DownloadManager:
                 raise RuntimeError('Download interrupted before all bytes arrived; retry to resume')
         self._verify(partial, job)
         os.replace(partial, complete)
+        with complete.open('rb') as stream:
+            info['sha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
         info['complete'] = True
         self._save_metadata(metadata, info)
         return self._deliver(complete, job, info)
@@ -243,10 +262,25 @@ class DownloadManager:
         temporary.chmod(0o600)
         os.replace(temporary, path)
 
-    @staticmethod
-    def _deliver(source, job, info):
+    def _deliver(self, source, job, info):
         if job.interrupt.is_set():
             return None
+        if source.stat().st_size > MAX_DOWNLOAD:
+            raise RuntimeError("Download exceeds the 512 MiB limit")
+        if self.publisher:
+            job.publisher_result = self.publisher(source, job.url)
+        if self.scanner:
+            job.scan_result = "Scanning for malware"
+            self.changed()
+            try:
+                job.scan_result = self.scanner(source)
+            except Exception:
+                job.scan_result = "Scan blocked installation"
+                source.unlink(missing_ok=True)
+                raise
+            if job.interrupt.is_set():
+                return None
+        inspect_archive(source)
         job.destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = job.destination.with_name(job.destination.name+'.orbits-part')
         shutil.copyfile(source, temporary)
@@ -275,7 +309,14 @@ def get_manager():
             from orbits.offline import enabled, OfflineError
             if enabled():
                 raise OfflineError('You are offline. This download is not cached yet.')
-            return urllib.request.urlopen(request, timeout=timeout)
+            from orbits.safe_network import open_remote
+            return open_remote(request, timeout=timeout)
         from orbits.offline import enabled
-        _manager = DownloadManager(CACHE_DIR/'downloads', changed=changed, opener=opener, offline=enabled)
+        def scanner(path):
+            from orbits.config import settings, DATA_DIR
+            from orbits.security import scan_with_settings
+            return scan_with_settings(path, settings, DATA_DIR / 'clamav', offline=enabled())
+        from orbits.publishers import configured_verify
+        _manager = DownloadManager(CACHE_DIR/'downloads', changed=changed, opener=opener,
+                                   offline=enabled, scanner=scanner, publisher=configured_verify)
     return _manager

@@ -48,6 +48,9 @@ settings = JsonStore(
     CONFIG_DIR / "settings.json",
     {
         "offline": False,
+        "malware_scan": False,
+        "malware_auto_update": False,
+        "require_publisher": False,
         "welcome_done": False,
         "register_in_gnome": True,
         "default_source": "kde",

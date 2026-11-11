@@ -6,7 +6,8 @@ from pathlib import Path
 from gi.repository import Adw, Gdk, Gtk, Pango, PangoCairo
 
 from orbits import font_tools, net
-from orbits.fonts import get_font_library, register_preview, system_families
+from orbits.fonts import get_font_library, system_families
+from orbits.ui.font_preview import load as load_font_preview
 from orbits.ui.font_actions import font_attrs
 
 
@@ -42,7 +43,7 @@ class FontInspector(Adw.Dialog):
         self.sample_text=Gtk.Entry(text="The quick brown fox jumps over the lazy dog. 0123456789")
         self.sample_text.connect("changed",lambda *_:self.preview())
         body.append(self.sample_text)
-        self.sample=Gtk.Label(wrap=True,xalign=0,selectable=True,margin_top=10,margin_bottom=10)
+        self.sample=Gtk.Picture(height_request=100,margin_top=10,margin_bottom=10)
         body.append(self.sample)
         self.axis_group=Adw.PreferencesGroup(title=tr("Variable Font Axes"))
         body.append(self.axis_group)
@@ -94,7 +95,7 @@ class FontInspector(Adw.Dialog):
             if error:
                 self.info.set_label(str(error));return
             self.metadata=metadata
-            register_preview(path,PangoCairo.FontMap.get_default())
+            self.preview_path = path
             self.info.set_label(" · ".join(filter(None,[metadata["full_name"],metadata["style"],metadata["version"],
                 f"{metadata['glyph_count']} glyphs",f"{len(metadata['codepoints'])} Unicode characters",metadata["designer"]])))
             self.license.set_label((metadata["license"] or self.entry.get("license") or "No embedded license information") + ("\n"+metadata["license_url"] if metadata["license_url"] else ""))
@@ -122,9 +123,9 @@ class FontInspector(Adw.Dialog):
 
     def preview(self):
         if not self.metadata:return
-        self.sample.set_label(self.sample_text.get_text())
-        features=",".join(f"{tag}={1 if row.get_selected()==1 else 0}" for tag,row in self.features.items() if row.get_selected())
-        self.sample.set_attributes(font_attrs(self.metadata["family"],24,variations=self.variations(),features=features))
+        features = [tag if row.get_selected() == 1 else '-' + tag for tag, row in self.features.items() if row.get_selected()]
+        load_font_preview(self.sample, self.preview_path, self.sample_text.get_text(), 24,
+                          variations={tag: row.get_value() for tag, row in self.axes.items()}, features=features)
 
     def glyph_page(self,page):
         if not self.metadata:return
@@ -133,7 +134,7 @@ class FontInspector(Adw.Dialog):
         self.grid.remove_all()
         for record in records:
             label=Gtk.Label(label=record["character"])
-            label.set_attributes(font_attrs(self.metadata["family"],22,variations=self.variations()))
+            label.set_attributes(font_attrs("Sans",22))
             button=Gtk.Button(child=label,tooltip_text=tr('U+{value0:04X} · {value1}').format(value0=record['codepoint'], value1=record['name']))
             button.connect("clicked",lambda _b,char=record["character"]:Gdk.Display.get_default().get_clipboard().set(char))
             self.grid.append(button)
@@ -172,7 +173,7 @@ class FontCompare(Adw.Dialog):
             choice.set_selected(min(i,len(self.families)-1))
             choice.connect("notify::selected",lambda *_:self.update())
             self.choices.append(choice);column.append(choice)
-            sample=Gtk.Label(wrap=True,xalign=0,selectable=True)
+            sample=Gtk.Picture(height_request=150)
             self.samples.append(sample);column.append(sample)
             columns.append(column)
         body.append(columns)
@@ -192,8 +193,17 @@ class FontCompare(Adw.Dialog):
 
     def update(self):
         for choice,sample in zip(self.choices,self.samples):
-            sample.set_label(self.text.get_text())
-            sample.set_attributes(font_attrs(self.families[choice.get_selected()],self.size.get_value()))
+            family = self.families[choice.get_selected()]
+            def resolve(family=family):
+                import subprocess
+                result = subprocess.run(['fc-match', '--format', '%{file}', family], capture_output=True, text=True, timeout=10, check=True)
+                return result.stdout.strip()
+            def ready(path, error, picture=sample, text=self.text.get_text(), size=self.size.get_value()):
+                if error:
+                    picture.set_tooltip_text(str(error))
+                elif path:
+                    load_font_preview(picture, path, text, size)
+            net.run_async(resolve, ready)
 
 
 class FontRules(Adw.Dialog):

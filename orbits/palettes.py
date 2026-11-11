@@ -87,6 +87,8 @@ GRADIENCE_ROLES = {"accent": "accent_bg_color", "window_bg": "window_bg_color", 
 
 
 def import_palette(path, defaults):
+    if Path(path).stat().st_size > 2 * 1024**2:
+        raise ValueError("Palette metadata is too large")
     data = json.loads(Path(path).read_text())
     if not isinstance(data, dict):
         raise ValueError("Invalid palette file")

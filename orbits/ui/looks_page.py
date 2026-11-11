@@ -291,9 +291,10 @@ class LooksPage(Adw.Bin):
         dlg.open(self.window, None, done)
 
     def import_path(self, path):
-        try:
-            look = self.store.import_file(path)
-        except Exception as e:  # noqa: BLE001 — bad files must not crash the app
-            self.window.toast(tr("Couldn't import: {value0}").format(value0=e), timeout=6)
-            return
-        self.window.toast(tr('Imported “{value0}”').format(value0=look['name']), button="Apply", action=lambda: self.apply(look))
+        def done(look, error):
+            if error:
+                self.window.toast(tr("Couldn't import: {value0}").format(value0=error), timeout=6)
+                return
+            self.store.emit("changed")
+            self.window.toast(tr('Imported “{value0}”').format(value0=look['name']), button="Apply", action=lambda: self.apply(look))
+        net.run_async(lambda: self.store.import_file(path, notify=False), done)

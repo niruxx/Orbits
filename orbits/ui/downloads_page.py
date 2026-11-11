@@ -45,7 +45,7 @@ class DownloadsPage(Adw.Bin):
             percent = f' · {round(100*job.received/job.total)}%' if job.total else ''
             states = {'queued':_('queued'), 'downloading':_('downloading'), 'paused':_('paused'),
                       'cancelled':_('cancelled'), 'completed':_('completed'), 'failed':_('failed')}
-            row = Adw.ActionRow(title=job.label, subtitle=states[job.state]+percent+(' · '+job.error if job.error else ''),
+            row = Adw.ActionRow(title=job.label, subtitle=states[job.state]+percent+' · '+_(job.scan_result)+' · '+job.publisher_result+(' · '+job.error if job.error else ''),
                                 use_markup=False)
             if job.state in ('queued','downloading','paused'):
                 paused = job.state == 'paused'

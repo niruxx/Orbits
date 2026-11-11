@@ -125,7 +125,7 @@ GNOME 47+ (tested on GNOME Shell 51), Python 3.11+, PyGObject, GTK ≥ 4.14, lib
 polkit (`pkexec`), `glib-compile-resources`, fontconfig, Pillow, FontTools and GDM.
 Wallpaper rotation requires systemd user services; HEIC import optionally requires pillow-heif.
 
-Arch: `sudo pacman -S python-gobject gtk4 libadwaita polkit glib2 fontconfig python-pillow python-fonttools`
+Arch: `sudo pacman -S bubblewrap python-gobject gtk4 libadwaita polkit glib2 fontconfig python-pillow python-fonttools`
 
 ## Install on Arch Linux
 
@@ -369,3 +369,160 @@ The GTK-independent regression suites can be run with Pillow and FontTools insta
 ```sh
 python3 -m unittest tests.test_fonts_looks tests.test_theme_features tests.test_wallpaper_tools tests.test_wallpaper_state
 ```
+
+### Download security
+
+Preferences → General → Downloads → **Scan Downloads for Malware** enables local
+ClamAV scanning for all files fetched through the installation download manager,
+including wallpaper, theme and font updates. Install `clamscan` (usually the
+`clamav` package) and install `freshclam` for definition updates. The scanning switch can be enabled or
+disabled independently of **Automatically Update Virus Definitions**. Automatic
+updates run before scans, at most once per day; a failed update blocks that scan.
+**Update Virus Definitions Now** runs an update immediately and displays its result.
+Both update paths use a private database in Orbits' user data directory without
+administrator access. The first download can take several minutes and substantial
+disk space. Orbits does not install ClamAV for you.
+
+With automatic updates disabled, scans use existing Orbits definitions when
+available, otherwise the system database. Offline Mode skips automatic updates and
+blocks manual updates; scans can still use installed definitions. Turning off
+Orbits updates does not stop system-wide freshclam services. Turning off scanning
+does not run automatic updates; the manual update button remains available. Files are
+not uploaded to a third-party scanning service.
+
+When enabled, a missing scanner, scanner error, timeout, detection, encrypted
+content or exceeded scanner limits blocks installation. The Downloads page shows
+scan results. Cached downloads are scanned again on reuse. Scans may take up to
+three minutes; cancellation prevents delivery but a running scan finishes or times
+out in the background. “No known malware detected” is not a guarantee of safety.
+
+Installation downloads are limited to 512 MiB. Recognized ZIP/tar archives are
+checked before delivery: at most 10,000 entries and 1 GiB of declared expanded
+content; links, special files and encrypted ZIPs are rejected. Downloaded wallpaper
+images must fully decode as a supported single-frame raster image, with at most
+40 megapixels. SVG wallpaper downloads are rejected. These checks do not execute
+wallpaper QML or installation scripts.
+
+Wallpaper installation, browsing images, local thumbnails, imported wallpaper
+images and image assets inside Looks use a separate bubblewrap decoder with no
+network, restricted filesystem mounts, a 1 GiB address-space limit, CPU and output
+limits, and a 40-second wall timeout. Only validated raw pixels leave that worker;
+Orbits constructs a fresh PNG without original metadata. Bubblewrap and working
+unprivileged namespaces are required. If unavailable, these image operations fail
+closed; there is no unsandboxed fallback. SVG is currently unsupported.
+
+Remote previews are limited to 32 MiB and 2048 pixels per side after conversion.
+Cached originals also pass through checks before display. The scanning switch
+also covers these previews, local font/theme/boot-theme imports, wallpaper imports
+and imported Looks. Local assets are copied into bounded private snapshots before
+scanning so the importer consumes the bytes checked. HEIC imports preserve up to
+200 frames, bounded by a 512 MiB aggregate raw-pixel limit; other imported and
+downloaded wallpapers must be single-frame images.
+
+**Scan Existing Appearance Assets** in Preferences explicitly scans current user
+wallpapers, Orbits fonts, user theme directories and Looks, even when automatic
+scanning is disabled. It reports errors/detections without deleting or rewriting
+installed files. System assets and symlink targets are excluded. Existing files
+are not automatically converted; unsafe existing assets should be removed or
+reimported through the protected path.
+
+Orbits font inspection and explicit font previews are sandboxed; the desktop’s theme and font engines remain outside this isolation. Applying
+an existing theme or font still invokes those components. Keep their libraries
+and ClamAV signatures updated. Signatures supplied alongside an upload establish
+integrity, not publisher trust or harmlessness.
+
+Remote catalogue, preview and installation requests now require HTTPS, validate
+all resolved addresses as public, and pin the selected numeric address for the TLS
+connection while retaining hostname/certificate checks. Redirects are limited to
+five and cannot downgrade to HTTP or redirect into local/private networks. Cross
+origin redirects drop authorization and cookie headers. These protected requests
+do not use environment proxies. Local files are accepted only by explicit import
+actions; a remote catalogue cannot request a `file:` download. HTTP-only sources,
+private-network hosts and proxy-only connections are unsupported by this policy.
+
+All wallpaper, font, theme and Look extraction uses the same streaming limits:
+512 MiB per member, 1 GiB total output, 10,000 entries and 20 path components.
+Actual bytes are counted while writing. Traversal, duplicate/conflicting paths,
+links, special files and encrypted ZIP entries are rejected; archive permission
+bits are not preserved.
+
+Fonts receive structural SFNT/collection table checks before installation. Theme
+assets have an allowlist, executable-content/signature checks, bounded text and
+XML checks, and restrictions on external stylesheet/SVG references and launchable
+metadata. Shell scripts, native binaries, QML and JavaScript are blocked. Plymouth's
+own `.script` format and script modules are blocked for downloaded themes because
+the real boot runtime cannot sandbox them. Existing Orbits-managed scripted
+Plymouth themes cannot be applied until replaced; distribution-managed themes
+remain available. These conservative rules can reject previously accepted theme packages.
+
+The privileged helper snapshots source trees using directory descriptors,
+rejects links/hardlinks, unsafe ownership/permissions and special files, and
+revalidates its staged copy before replacing fonts or themes. Staging failures
+leave the previous installation in place. This does not establish publisher trust
+or prove the desktop's font/theme parsers are vulnerability-free.
+
+New managed wallpapers, fonts, themes and Looks record SHA-256 manifests. Orbits
+checks them before applicable appearance changes. **Check Installed File Integrity**
+in Preferences finds changed, added or deleted files without replacing their
+baseline. Older assets without a baseline are reported as unverified. These are
+local change records, not signed attestations; a process with access to the same
+account can also modify its user-owned records. Root-installed records retain the
+system installation's permissions.
+
+**Malware Protection Status** in Preferences shows scanning state, missing tools,
+the last successful Orbits definition check and private daily-database file age.
+A file older than seven days is flagged for an update. File age is not a guarantee
+of current signature contents; system-managed database age is labeled unknown
+and scanner version/database information is displayed when available.
+
+### Parser isolation, publishers and older assets
+
+Archive probing and ZIP/tar extraction run in a separate bubblewrap process with
+memory, CPU, file-size and time limits. Orbits independently checks returned paths,
+file types, links, byte totals and counts before accepting the output. FontTools
+metadata inspection and FreeType sample rendering also run in restricted workers.
+Preview fonts are never registered in the GUI's Pango font map. Font samples are
+fresh PNGs reconstructed from bounded raw pixels; glyph-map button labels use the
+system font. System font discovery uses Fontconfig; installing or applying a font
+still exposes it to the desktop's font engine. These processes cannot be isolated
+by Orbits on behalf of every other application.
+
+**Trusted Publishers** in Preferences lets users pin a publisher hostname, display
+name and Minisign public key. Obtain keys through an independently authenticated
+channel; no key from a download is trusted automatically. For a configured host,
+Orbits requires a valid prehashed Minisign signature at the original download URL
+with `.minisig` appended to its path. Redirects do not change which host's keys are
+trusted. Signature verification runs on every use, including cached payloads;
+offline verification needs the cached signature for those exact bytes. Invalid or
+missing signatures for a pinned host block installation. Install `minisign` to
+use this feature.
+
+**Require Verified Publishers for New Installs** additionally rejects sources
+without a configured key. This is optional because most community stores do not
+publish signatures. Explicit local imports in this mode need a `.minisig` sidecar
+signed by one of the configured keys. Strict mode does not retroactively identify
+publishers of installed assets, verify unsigned browsing thumbnails, or establish
+that a signed asset is harmless. A valid old signature alone does not establish
+that a release is the newest version; this is not a transparency or anti-rollback
+service.
+
+**Validate Older Managed Assets** checks supported user assets and creates an
+integrity baseline only after successful validation. Existing manifests are
+verified and never silently replaced. Invalid or external Look references and
+scripted themes are rejected; reimport these assets through the normal protected
+path. This action records local validation, not publisher authentication, and does
+not rewrite original legacy image formats.
+
+Run `python3 -m unittest tests.test_live_security` for live integration checks.
+Set `ORBITS_REQUIRE_LIVE_SECURITY=1` to fail instead of skip when tools, definitions
+or user namespaces are unavailable. The security CI workflow provisions a disposable
+Linux runner, updates ClamAV definitions and runs real sandbox, signature and EICAR
+checks. Its separate root-staging profile uses temporary installation and cache
+paths. It does not change a real login screen or bootloader. Real desktop/boot
+verification still requires a disposable VM or test machine.
+
+The privileged installer does not run Fontconfig or icon-cache parsers on new
+third-party files as root. Cache refresh remains in the user session or is handled
+lazily by the desktop. Applying an installed font/theme still allows the desktop
+to consume it with that component's privileges; Orbits cannot sandbox GNOME, GDM,
+Plymouth or other applications from inside this installer.

@@ -127,6 +127,42 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
 
 ## Good to haves
 
+- [x] **Remaining security boundaries:** isolate archive parsing and font inspection/
+  rendering; require raster font previews; block downloaded scripted Plymouth themes.
+- [x] **Publisher authentication:** explicit hostname/key pins with Minisign, per-use
+  verification and optional strict signature enforcement. Community sources remain
+  unverified unless publishers provide signatures and users configure trusted keys.
+- [x] **Older-asset validation:** explicit validation before creating first integrity
+  baselines; never replace a failed or existing baseline or claim publisher identity.
+- [x] **Required live test profile and security CI:** real sandbox access restrictions,
+  font/archive processing, Minisign, EICAR and root staging against temporary paths.
+  This host cannot execute live namespace/antivirus checks; CI has not been run here.
+
+- [x] **Public HTTPS transport:** DNS-pinned connections, checked redirects, no
+  downgrade/private-network destinations, and explicit local-file import intent.
+- [x] **Bounded archive extraction:** actual-byte budgets, member/count/depth limits,
+  and rejection of traversal, duplicate/conflicting paths, links and special files.
+- [x] **Asset and privileged-install checks:** structural font validation, data-only
+  theme policy, descriptor-anchored privileged snapshots and staged revalidation.
+- [x] **Security visibility and change detection:** definition/tool status, database
+  file-age warnings, SHA-256 manifests for new managed assets and explicit integrity
+  checks. Existing assets without a baseline remain unverified; records are not
+  publisher signatures. Adversarial tests include an optional live EICAR check.
+
+- [x] **Download checks and optional malware scanning:** local ClamAV scans before
+  installation (including cached downloads and updates), blocking on detections or
+  scan errors; download/archive limits; decoded raster wallpaper validation.
+  Preferences has independent scanning and automatic definition-update switches,
+  plus a manual update action using a private, unprivileged freshclam database.
+- [x] **Isolated image processing:** required bubblewrap decoding for wallpaper
+  installation, remote/local previews, local wallpaper imports and Look images;
+  reconstruct PNGs from bounded raw pixels, stripping original metadata. Local
+  fonts/theme archives use snapshot and malware checks. Preferences offers an
+  explicit scan of existing user appearance assets without rewriting them.
+  Live bubblewrap isolation needs verification on a host permitting namespaces;
+  FontTools inspection, FreeType previews and archive parsers now use restricted
+  workers. Applied desktop theme/font engines remain outside Orbits isolation.
+
 - [x] **Global search** across installed wallpapers, themes, fonts and Looks (Ctrl+K).
   Online discovery remains in each store's search.
 - [x] **A GNOME Shell search provider:** type a saved Look's name in the overview to apply

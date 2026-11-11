@@ -315,6 +315,13 @@ def _enable_user_theme_extension():
 @reversible("Theme applied")
 def apply(kind_id, name):
     """Apply a user-session theme. Plymouth goes through the privileged helper instead."""
+    from orbits.integrity import verify_tree
+    kind = KINDS[kind_id]
+    for base in kind.search_dirs:
+        candidate = base/name
+        if candidate.is_dir():
+            verify_tree(candidate)
+            break
     if kind_id in ("gtk1", "gtk2"):
         apply_legacy(kind_id, name)
     elif kind_id == "sounds":
@@ -404,6 +411,8 @@ def libadwaita_state():
 
 @reversible("GTK4 theme applied")
 def apply_libadwaita(theme_dir: Path):
+    from orbits.integrity import verify_tree
+    verify_tree(theme_dir)
     src = theme_dir / "gtk-4.0"
     if not (src / "gtk.css").exists():
         raise RuntimeError(f"{theme_dir.name} has no GTK4 / libadwaita stylesheet")
@@ -534,30 +543,8 @@ def cursor_file(theme_dir: Path, names):
 
 # ---------------------------------------------------------------- install from archives
 def _safe_unpack(archive: Path, dest: Path):
-    total = 0
-    if zipfile.is_zipfile(archive):
-        with zipfile.ZipFile(archive) as z:
-            root = dest.resolve()
-            for info in z.infolist():
-                total += info.file_size
-                if total > MAX_UNPACKED:
-                    raise RuntimeError("Archive is too large")
-                target = (dest / info.filename).resolve()
-                if not str(target).startswith(str(root) + os.sep):
-                    continue
-                if info.is_dir():
-                    target.mkdir(parents=True, exist_ok=True)
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with z.open(info) as src, open(target, "wb") as out:
-                    shutil.copyfileobj(src, out)
-        return
-    with tarfile.open(archive) as t:
-        for m in t.getmembers():
-            total += m.size
-            if total > MAX_UNPACKED:
-                raise RuntimeError("Archive is too large")
-        t.extractall(dest, filter="data")
+    from orbits.safe_archive import extract
+    return extract(archive, dest)
 
 
 def find_themes(root: Path, kind: Kind, fallback_name="theme"):
@@ -721,11 +708,12 @@ class ThemeManager(GObject.Object):
         with tempfile.TemporaryDirectory(prefix="orbits-theme-") as tmp:
             tmp = Path(tmp)
             archive = tmp / (re.sub(r"[^A-Za-z0-9._-]", "_", download.name) or "download")
-            net.download(download.url, archive, report, checksum=getattr(download, "md5", ""))
+            net.download(download.url, archive, report, checksum=getattr(download, "md5", ""), allow_local=item.source == "local")
             unpack = tmp / "unpacked"
             unpack.mkdir()
             try:
-                if kind.id == "terminal" and not zipfile.is_zipfile(archive) and not tarfile.is_tarfile(archive):
+                from orbits.safe_archive import is_archive
+                if kind.id == "terminal" and not is_archive(archive):
                     shutil.copyfile(archive, unpack / archive.name)
                 else:
                     _safe_unpack(archive, unpack)
@@ -739,6 +727,9 @@ class ThemeManager(GObject.Object):
                     hint = " It only ships an install script — open its page for instructions."
                 raise RuntimeError(f"No {kind.noun} found in {download.name}.{hint}")
 
+            from orbits.asset_validation import validate_theme_tree
+            for source, _name in themes:
+                validate_theme_tree(source, kind.id)
             marker = {"key": item.key, "title": item.title, "preview": item.preview_url or item.thumb_url,
                       "page": item.page_url, "installed_at": time.time()}
             if kind.id == "plymouth":
@@ -750,6 +741,8 @@ class ThemeManager(GObject.Object):
                         shutil.rmtree(dest)
                     shutil.copytree(src, dest, symlinks=True)
                     (dest / MARKER).write_text(json.dumps(marker))
+                    from orbits.integrity import record_tree
+                    record_tree(dest)
                     staged.append((str(dest), name))
                 return {"key": item.key, "title": item.title, "names": [n for _, n in staged], "staged": staged,
                         "preview": marker["preview"], "download": download.name, "remote_changed": item.updated,
@@ -759,17 +752,20 @@ class ThemeManager(GObject.Object):
             names = []
             for src, name in themes:
                 dest = kind.user_dir / name
-                if dest.exists():
-                    if not _read_marker(dest):
-                        raise RuntimeError(f"A theme named “{name}” is already installed (not by Orbits)")
-                    shutil.rmtree(dest)
-                if kind.id == "terminal":
-                    from orbits.terminal_schemes import read_scheme
-                    dest.mkdir()
-                    (dest / "terminal.json").write_text(json.dumps(read_scheme(src), indent=2))
-                else:
-                    shutil.copytree(src, dest, symlinks=True)
-                (dest / MARKER).write_text(json.dumps(marker))
+                if dest.exists() and not _read_marker(dest):
+                    raise RuntimeError(f'A theme named “{name}” is already installed (not by Orbits)')
+                with tempfile.TemporaryDirectory(prefix='.orbits-theme-', dir=kind.user_dir) as temporary:
+                    tree = Path(temporary)/'ready'
+                    if kind.id == 'terminal':
+                        from orbits.terminal_schemes import read_scheme
+                        tree.mkdir()
+                        (tree/'terminal.json').write_text(json.dumps(read_scheme(src), indent=2))
+                    else:
+                        shutil.copytree(src, tree)
+                    (tree/MARKER).write_text(json.dumps(marker))
+                    from orbits.integrity import record_tree, publish_tree
+                    record_tree(tree)
+                    publish_tree(tree, dest)
                 names.append(name)
         return {"key": item.key, "title": item.title, "names": names, "preview": marker["preview"],
                 "download": download.name, "remote_changed": item.updated, "installed_at": time.time()}

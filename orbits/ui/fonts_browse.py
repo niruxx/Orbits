@@ -4,7 +4,8 @@ from gi.repository import Adw, GLib, GObject, Gtk, PangoCairo
 
 from orbits.config import settings
 from orbits import net
-from orbits.fonts import get_font_library, preview_font_file, register_preview
+from orbits.fonts import get_font_library, preview_font_file
+from orbits.ui.font_preview import load as load_font_preview
 from orbits.ui.font_actions import apply_menu_button, font_attrs
 from orbits.ui.widgets import open_uri, status_page
 
@@ -23,7 +24,7 @@ class FontCard(Gtk.Box):
                          width_request=300)
         self.page, self.item = page, item
         top = Gtk.Box(spacing=8)
-        self.big = Gtk.Label(label=tr("Aa"), xalign=0, css_classes=["font-card-glyphs"], hexpand=True)
+        self.big = Gtk.Picture(height_request=48, hexpand=True)
         top.append(self.big)
         self.badge = Gtk.Label(css_classes=["font-badge"], valign=Gtk.Align.START, visible=False)
         top.append(self.badge)
@@ -32,8 +33,7 @@ class FontCard(Gtk.Box):
         self.install_btn.connect("clicked", lambda *_: page.install(item))
         top.append(self.install_btn)
         self.append(top)
-        self.sample = Gtk.Label(label=SAMPLES.get(item.category, DEFAULT_SAMPLE), xalign=0, wrap=True,
-                                lines=2, ellipsize=3, max_width_chars=26, css_classes=["font-card-sample"])
+        self.sample = Gtk.Picture(height_request=36)
         self.append(self.sample)
         self.name = Gtk.Label(label=item.family, xalign=0, ellipsize=3, max_width_chars=26, css_classes=["heading"],
                               margin_top=4)
@@ -50,16 +50,20 @@ class FontCard(Gtk.Box):
 
     def _load_preview(self):
         if not self.item.preview_url:
+            self.big.get_parent().prepend(Gtk.Label(label='Aa', xalign=0, hexpand=True))
+            self.big.set_visible(False)
+            self.sample.set_visible(False)
             fam = "Monospace" if self.item.category == "monospace" else None
             if fam:
-                self.big.set_attributes(font_attrs(fam, 26))
-                self.sample.set_attributes(font_attrs(fam, 12))
+                self.big.set_tooltip_text(tr("No downloadable preview is available"))
             return
 
         def done(path, err):
-            if path and register_preview(path, PangoCairo.FontMap.get_default()):
-                self.big.set_attributes(font_attrs(self.item.family, 30))
-                self.sample.set_attributes(font_attrs(self.item.family, 13))
+            if path:
+                load_font_preview(self.big, path, 'Aa', 30)
+                load_font_preview(self.sample, path, SAMPLES.get(self.item.category, DEFAULT_SAMPLE), 13)
+            elif err:
+                self.big.set_tooltip_text(str(err))
 
         net.run_async(preview_font_file, done, self.item)
 
@@ -245,7 +249,7 @@ class FontDetailDialog(Adw.Dialog):
         self.page, self.item, self.lib = page, item, page.lib
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_start=24, margin_end=24,
                       margin_bottom=24)
-        self.display = Gtk.Label(label=item.family, xalign=0, wrap=True, css_classes=["font-detail-display"])
+        self.display = Gtk.Picture(height_request=60)
         box.append(self.display)
         box.append(Gtk.Label(label=" · ".join(x for x in [item.subtitle, item.license] if x), xalign=0,
                              css_classes=["dim-label"]))
@@ -254,11 +258,10 @@ class FontDetailDialog(Adw.Dialog):
         box.append(self.entry)
         self.samples = []
         for size in (40, 28, 18, 12):
-            lbl = Gtk.Label(xalign=0, wrap=True, css_classes=["font-detail-sample"])
+            lbl = Gtk.Picture(height_request=size + 20)
             self.samples.append((lbl, size))
             box.append(lbl)
-        alpha = Gtk.Label(label=tr("ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !?&@#%(){}"),
-                          xalign=0, wrap=True, margin_top=12, css_classes=["dim-label"])
+        alpha = Gtk.Picture(height_request=100, margin_top=12)
         self.samples.append((alpha, 16))
         box.append(alpha)
         self.entry.connect("changed", lambda *_: self._update_text())
@@ -283,20 +286,21 @@ class FontDetailDialog(Adw.Dialog):
 
     def _update_text(self):
         text = self.entry.get_text() or DEFAULT_SAMPLE
-        for lbl, _size in self.samples[:-1]:
-            lbl.set_label(text)
+        if getattr(self, '_preview_path', None):
+            for picture, size in self.samples[:-1]:
+                load_font_preview(picture, self._preview_path, text, size)
 
     def _apply_font(self):
-        fam = self.item.family
-
-        def apply():
-            self.display.set_attributes(font_attrs(fam, 34))
-            for lbl, size in self.samples:
-                lbl.set_attributes(font_attrs(fam, size))
-
+        def done(path, error):
+            if error or not path:
+                self.display.set_tooltip_text(str(error or 'No preview available'))
+                return
+            self._preview_path = path
+            load_font_preview(self.display, path, self.item.family, 34)
+            self._update_text()
+            load_font_preview(self.samples[-1][0], path, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !?&@#%(){}', 16)
         if self.item.preview_url:
-            net.run_async(preview_font_file, lambda p, e: p and register_preview(
-                p, PangoCairo.FontMap.get_default()) and apply(), self.item)
+            net.run_async(preview_font_file, done, self.item)
 
     def _sync(self):
         while (c := self.buttons.get_first_child()):

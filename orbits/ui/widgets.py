@@ -10,13 +10,11 @@ from orbits.config import THUMB_CACHE
 
 def local_thumbnail(path, size=640):
     """Scaled-down texture for a local image, cached as PNG. Worker-thread safe."""
-    p = Path(path)
-    key = hashlib.sha1(f"{p}:{p.stat().st_mtime}:{size}".encode()).hexdigest()
-    cached = THUMB_CACHE / f"local-{key}.png"
-    if not cached.exists():
-        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(p), size, size, True)
-        pb.savev(str(cached), "png", [], [])
-    return Gdk.Texture.new_from_filename(str(cached))
+    import tempfile
+    from orbits.image_safety import normalize_images
+    with tempfile.TemporaryDirectory(prefix='orbits-local-preview-') as temporary:
+        image = normalize_images(path, temporary, size=min(size, 4096))[0]
+        return Gdk.Texture.new_from_filename(str(image))
 
 
 class CoverPicture(Gtk.Widget):

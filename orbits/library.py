@@ -95,33 +95,8 @@ def _collect_variants(root: Path):
 
 
 def _safe_extract(archive: Path, dest: Path):
-    total = 0
-    if zipfile.is_zipfile(archive):
-        with zipfile.ZipFile(archive) as z:
-            for info in z.infolist():
-                target = (dest / info.filename).resolve()
-                if not str(target).startswith(str(dest.resolve()) + os.sep) or info.is_dir():
-                    continue
-                total += info.file_size
-                if total > MAX_UNPACKED:
-                    raise RuntimeError("Archive is too large")
-                if not (_is_image(info.filename) or info.filename.endswith(("metadata.json", "metadata.desktop"))):
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with z.open(info) as src, open(target, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
-        return
-    with tarfile.open(archive) as t:
-        members = []
-        for m in t.getmembers():
-            if not m.isfile():
-                continue
-            total += m.size
-            if total > MAX_UNPACKED:
-                raise RuntimeError("Archive is too large")
-            if _is_image(m.name):
-                members.append(m)
-        t.extractall(dest, members=members, filter="data")
+    from orbits.safe_archive import extract
+    return extract(archive, dest, wanted=lambda name: _is_image(name))
 
 
 class Library(GObject.Object):
@@ -193,6 +168,8 @@ class Library(GObject.Object):
             rec["preview"] = str(thumb)
         entry = {"key": key, "source": "local", "id": key, "title": title, "author": "", "page_url": "",
                  "thumb_url": "", "dir": str(dest_dir), "files": [rec], "installed_at": time.time()}
+        from orbits.integrity import record_tree
+        record_tree(dest_dir)
         self.items[key] = entry
         self._save()
         self.emit("changed")
@@ -214,6 +191,8 @@ class Library(GObject.Object):
             rec = {"name": title, "light": str(xml), "dark": None, "preview": str(copied[0][1])}
             entry = {"key": key, "source": "local", "id": key, "title": title, "author": "", "page_url": "",
                      "thumb_url": "", "dir": str(folder), "files": [rec], "installed_at": time.time()}
+            from orbits.integrity import record_tree
+            record_tree(folder)
             self.items[key] = entry
             self._save()
         except Exception:
@@ -342,8 +321,9 @@ class Library(GObject.Object):
             content_type, _ = net.download(download.url, raw, report, checksum=getattr(download, "md5", ""))
             unpack = tmp / "unpacked"
             unpack.mkdir()
+            from orbits.safe_archive import is_archive
             looks_image = _is_image(name) or content_type.startswith("image/")
-            if not looks_image and (_is_archive(name) or zipfile.is_zipfile(raw) or tarfile.is_tarfile(raw)):
+            if not looks_image and (_is_archive(name) or is_archive(raw)):
                 _safe_extract(raw, unpack)
             elif looks_image:
                 if not _is_image(name):
@@ -360,6 +340,7 @@ class Library(GObject.Object):
                 staged = Path(staged)
                 tree = staged / "ready"
                 tree.mkdir()
+                from orbits.image_safety import normalize_images
                 for i, v in enumerate(variants[:200]):
                     rec = {"name": v["name"]}
                     for kind in ("light", "dark"):
@@ -367,10 +348,13 @@ class Library(GObject.Object):
                         if src is None:
                             rec[kind] = None
                             continue
-                        name = f"{i:03d}-{kind}-{_slug(v['name'])}{src.suffix.lower()}"
-                        shutil.move(src, tree / name)
+                        normalized = normalize_images(src, staged / f'pixels-{i}-{kind}', scan=False)[0]
+                        name = f"{i:03d}-{kind}-{_slug(v['name'])}.png"
+                        shutil.move(normalized, tree / name)
                         rec[kind] = str(dest_dir / name)
                     files.append(rec)
+                from orbits.integrity import record_tree
+                record_tree(tree)
                 backup = staged / "previous"
                 if dest_dir.exists():
                     os.rename(dest_dir, backup)
@@ -397,35 +381,22 @@ class Library(GObject.Object):
         }
 
     def import_files(self, paths: list[str]):
-        """Add local image files to the library (copied into the wallpapers folder)."""
+        """Scan and normalize local images before publishing them to the library."""
+        from orbits.image_safety import normalize_images
         added = 0
-        for p in paths:
-            src = Path(p)
-            if not (src.is_file() and _is_image(src.name)):
+        for value in paths:
+            source = Path(value)
+            if not _is_image(source.name):
                 continue
-            if src.suffix.lower() in (".heic", ".heif"):
-                from orbits.wallpaper_tools import heic_frames
-                with tempfile.TemporaryDirectory(prefix="orbits-heic-") as tmp:
-                    frames = heic_frames(src, tmp)
-                    if len(frames) > 1:
-                        self.create_slideshow([(i * 86400 // len(frames), p) for i, p in enumerate(frames)], src.stem)
-                    else:
-                        self.add_generated(frames[0], src.stem)
-                added += 1
-                continue
-            key = f"local:{uuid.uuid4().hex}"
-            dest_dir = download_dir() / key.replace(":", "-")
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            target = dest_dir / (_slug(src.stem) + src.suffix.lower())
-            shutil.copy2(src, target)
-            self.items[key] = {"key": key, "source": "local", "id": key, "title": src.stem,
-                               "author": "", "page_url": "", "thumb_url": "", "dir": str(dest_dir),
-                               "files": [{"name": src.stem, "light": str(target), "dark": None}],
-                               "installed_at": time.time()}
+            with tempfile.TemporaryDirectory(prefix='orbits-import-') as temporary:
+                count = 200 if source.suffix.lower() in ('.heic', '.heif') else 1
+                frames = normalize_images(source, temporary, frames=count, publisher=True)
+                if len(frames) > 1:
+                    self.create_slideshow([(i * 86400 // len(frames), image)
+                                           for i, image in enumerate(frames)], source.stem)
+                else:
+                    self.add_generated(frames[0], source.stem)
             added += 1
-        if added:
-            self._save()
-            self.emit("changed")
         return added
 
     # ---- uninstall ----------------------------------------------------
@@ -444,6 +415,10 @@ class Library(GObject.Object):
     # ---- apply --------------------------------------------------------
     @reversible("Wallpaper updated")
     def apply(self, file_rec: dict, desktop=True, lockscreen=False):
+        from orbits.integrity import verify_tree
+        for kind in ('light', 'dark'):
+            if file_rec.get(kind):
+                verify_tree(Path(file_rec[kind]).parent)
         from orbits.desktop import detect, xfce_wallpaper
         if lockscreen and detect() == "cinnamon":
             raise RuntimeError("Cinnamon manages the lock-screen background separately")

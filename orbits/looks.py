@@ -169,6 +169,8 @@ class LookStore(GObject.Object):
                     if Path(source).resolve()!=target.resolve():shutil.copy2(source,target)
                     look[field]=str(target)
         (d / "look.json").write_text(json.dumps(look, indent=2))
+        from orbits.integrity import record_tree
+        record_tree(d)
         self.emit("changed")
         return d
 
@@ -222,49 +224,70 @@ class LookStore(GObject.Object):
                     login.pop(key, None)  # System policy and monitor layouts stay on this machine.
             z.writestr("look.json", json.dumps(data, indent=2))
 
-    def import_file(self, src: Path):
+    def import_file(self, src: Path, *, notify=True):
+        from orbits.security import checked_local_file
+        with checked_local_file(src, publisher=True) as captured:
+            return self._import_checked(captured, notify=notify)
+
+    def _import_checked(self, src: Path, *, notify=True):
         from orbits.look_assets import rewrite_slideshow
-        d=LOOKS_DIR/("imported-"+uuid.uuid4().hex)
+        from orbits.safe_archive import extract
+        from orbits.image_safety import normalize_images
+        from orbits.integrity import record_tree
+        d = LOOKS_DIR/('imported-' + uuid.uuid4().hex)
         d.mkdir(parents=True)
         try:
-            with zipfile.ZipFile(src) as z:
-                infos=z.infolist()
-                if len(infos)>5000 or sum(info.file_size for info in infos)>512<<20:
-                    raise ValueError("Look archive is too large")
-                if z.getinfo("look.json").file_size>2<<20:raise ValueError("Look metadata is too large")
-                raw=json.loads(z.read("look.json"));look=sanitize(raw)
-                names=set(z.namelist());taken={}
-                def take(arc,allow_xml=False):
-                    if not isinstance(arc,str) or not arc or arc not in names or "/" in arc or "\\" in arc:
+            with tempfile.TemporaryDirectory(prefix='orbits-look-unpack-') as temporary:
+                root = extract(src, temporary)
+                metadata = root/'look.json'
+                if metadata.stat().st_size > 2 * 1024**2:
+                    raise ValueError('Look metadata is too large')
+                raw = json.loads(metadata.read_text())
+                look, taken = sanitize(raw), {}
+                def take(arc, allow_xml=False):
+                    if not isinstance(arc, str) or not arc or '/' in arc or '\\' in arc or arc in ('.', '..'):
                         return None
-                    suffix=Path(arc).suffix.lower()
-                    if suffix not in IMAGE_EXTS and not (allow_xml and suffix==".xml"):return None
-                    if arc in taken:return taken[arc]
-                    out=d/arc
-                    if suffix==".xml":
+                    source = root/arc
+                    suffix = source.suffix.lower()
+                    if not source.is_file() or (suffix not in IMAGE_EXTS and not (allow_xml and suffix == '.xml')):
+                        return None
+                    if arc in taken:
+                        return taken[arc]
+                    if suffix == '.xml':
+                        if source.stat().st_size > 2 * 1024**2:
+                            raise ValueError('Slideshow XML is too large')
                         def image(value):
-                            result=take(value)
-                            if not result:raise ValueError("Slideshow frame is missing from the Look archive")
+                            result = take(value)
+                            if not result:
+                                raise ValueError('Slideshow frame is missing from the Look archive')
                             return result
-                        out.write_text(rewrite_slideshow(z.read(arc).decode("utf-8"),image))
+                        output = d/arc
+                        output.write_text(rewrite_slideshow(source.read_text(), image))
                     else:
-                        with z.open(arc) as source,out.open("wb") as output:shutil.copyfileobj(source,output)
-                    taken[arc]=str(out)
-                    return str(out)
-                for kind in ("light","dark"):
-                    look["wallpaper"][kind]=take((raw.get("wallpaper") or {}).get(kind),True)
-                look["lockscreen"]=take(raw.get("lockscreen"),True)
-                screenshot=take(raw.get("screenshot"))
-                if screenshot:look["screenshot"]=screenshot
-                if look.get("login") is not None:
-                    for key in ("bg_image", "bg_image_light", "bg_image_dark"):
-                        look["login"][key]=take((raw.get("login") or {}).get(key)) or ""
-            look["created"]=time.time()
-            (d/"look.json").write_text(json.dumps(look,indent=2))
+                        with tempfile.TemporaryDirectory(prefix='orbits-look-image-') as pixels:
+                            normalized = normalize_images(source, pixels, scan=False)[0]
+                            output = d/(arc + '.png')
+                            shutil.copyfile(normalized, output)
+                    taken[arc] = str(output)
+                    return str(output)
+                for kind in ('light', 'dark'):
+                    look['wallpaper'][kind] = take((raw.get('wallpaper') or {}).get(kind), True)
+                look['lockscreen'] = take(raw.get('lockscreen'), True)
+                screenshot = take(raw.get('screenshot'))
+                if screenshot:
+                    look['screenshot'] = screenshot
+                if look.get('login') is not None:
+                    for key in ('bg_image', 'bg_image_light', 'bg_image_dark'):
+                        look['login'][key] = take((raw.get('login') or {}).get(key)) or ''
+            look['created'] = time.time()
+            (d/'look.json').write_text(json.dumps(look, indent=2))
+            record_tree(d)
         except Exception:
-            shutil.rmtree(d,ignore_errors=True)
+            shutil.rmtree(d, ignore_errors=True)
             raise
-        self.emit("changed");look["_dir"]=str(d)
+        if notify:
+            self.emit('changed')
+        look['_dir'] = str(d)
         return look
 
 
@@ -371,6 +394,9 @@ class LookApplier:
         if not self.components <= set(COMPONENTS):raise ValueError("Unknown Look component")
 
     def start(self):
+        from orbits.integrity import verify_tree
+        if self.look.get('_dir'):
+            verify_tree(self.look['_dir'])
         if not self.components:
             if self.done:self.done(["No components selected"])
             return
@@ -449,6 +475,25 @@ class LookApplier:
         from orbits.fonts import system_families
 
         look = self.look
+        from orbits.integrity import verify_tree
+        if 'themes' in self.components:
+            requested = {kind: (look.get('interface') or {}).get(key)
+                         for kind, key in (('gtk', 'gtk-theme'), ('icons', 'icon-theme'), ('cursors', 'cursor-theme'))}
+            requested['shell'] = look.get('shell_theme')
+            for kind, name in requested.items():
+                for candidate in themes.installed(kind):
+                    if candidate.name == name and getattr(candidate, 'path', None):
+                        verify_tree(candidate.path)
+        if 'wallpaper' in self.components:
+            for field in ('light', 'dark'):
+                if (look.get('wallpaper') or {}).get(field):
+                    verify_tree(Path(look['wallpaper'][field]).parent)
+        if 'fonts' in self.components:
+            from orbits.fonts import get_font_library
+            selected_families = {font_family(value) for key, value in (look.get('interface') or {}).items() if key.endswith('font-name')}
+            for entry in get_font_library().items.values():
+                if selected_families.intersection(entry.get('families', [entry.get('family')])) and entry.get('dir'):
+                    verify_tree(entry['dir'])
         iface = _iface()
         families = set(system_families()) if "fonts" in self.components else set()
         keys = set(_iface_keys())

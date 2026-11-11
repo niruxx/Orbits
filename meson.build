@@ -27,4 +27,4 @@ install_data('README.md', 'LICENSE', install_dir: get_option('datadir') / 'doc/o
 subdir('po')
 test('core', python, args: ['-m', 'unittest', 'tests.test_good_to_haves', 'tests.test_gdm_features',
   'tests.test_fonts_looks', 'tests.test_theme_features', 'tests.test_wallpaper_tools',
-  'tests.test_wallpaper_state', 'tests.test_preview_loading'], workdir: meson.current_source_dir(), timeout: 120)
+  'tests.test_download_security', 'tests.test_image_safety', 'tests.test_remaining_security', 'tests.test_final_security', 'tests.test_wallpaper_state', 'tests.test_preview_loading'], workdir: meson.current_source_dir(), timeout: 120)

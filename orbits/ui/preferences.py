@@ -105,7 +105,54 @@ class PreferencesDialog(Adw.PreferencesDialog):
                                        visible=bool(settings.get("download_dir")))
         self.reset_dir.connect("activated", lambda *_: self._set_dir(WALLPAPER_DIR))
         downloads.add(self.reset_dir)
+        downloads.add(_switch(tr("Scan Downloads for Malware"),
+                              tr("Require a successful local ClamAV scan before installation. Requires clamscan and virus definitions. No files are uploaded."),
+                              'malware_scan', self._refresh_security_status))
+        downloads.add(_switch(tr("Automatically Update Virus Definitions"),
+                              tr("Check for updates before scanning, at most once a day. Requires freshclam and a connection. Does not change system ClamAV services."),
+                              'malware_auto_update', self._refresh_security_status))
+        self.definitions_row = Adw.ButtonRow(title=tr("Update Virus Definitions Now"),
+                                            subtitle=tr("Download definitions for Orbits without administrator access"),
+                                            start_icon_name="view-refresh-symbolic")
+        self.definitions_row.connect("activated", self._update_definitions)
+        downloads.add(self.definitions_row)
+        self.rescan_row = Adw.ButtonRow(title=tr("Scan Existing Appearance Assets"),
+                                       subtitle=tr("Scan user wallpapers, fonts, themes and Looks with ClamAV. Includes assets installed outside Orbits; system assets and symlink targets are excluded."),
+                                       start_icon_name="security-high-symbolic")
+        self.rescan_row.connect("activated", self._rescan_assets)
+        downloads.add(self.rescan_row)
+        self.integrity_row = Adw.ButtonRow(title=tr("Check Installed File Integrity"),
+                                          subtitle=tr("Compare managed appearance files with their recorded SHA-256 hashes"),
+                                          start_icon_name="document-properties-symbolic")
+        self.integrity_row.connect("activated", self._check_integrity)
+        downloads.add(self.integrity_row)
+        self.security_status = Adw.ActionRow(title=tr("Malware Protection Status"), use_markup=False)
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER,
+                             tooltip_text=tr("Refresh Protection Status"))
+        refresh.connect("clicked", self._refresh_security_status)
+        self.security_status.add_suffix(refresh)
+        downloads.add(self.security_status)
+        self._refresh_security_status()
+        self.legacy_row = Adw.ButtonRow(title=tr("Validate Older Managed Assets"),
+                                       subtitle=tr("Validate files before recording their first integrity baseline. Existing baselines are never replaced; publisher identity remains unverified."))
+        self.legacy_row.connect("activated", self._validate_legacy)
+        downloads.add(self.legacy_row)
         page.add(downloads)
+        self.publisher_group = Adw.PreferencesGroup(title=tr("Trusted Publishers"),
+            description=tr("Only add keys obtained through an independently trusted channel. A signature authenticates its publisher, not harmlessness. Hostnames must publish a .minisig beside each download."))
+        self.publisher_group.add(_switch(tr("Require Verified Publishers for New Installs"),
+            tr("Reject unsigned downloads and imports. Most community stores do not currently provide signatures."), 'require_publisher'))
+        self.publisher_host = Adw.EntryRow(title=tr("Publisher Hostname"))
+        self.publisher_name = Adw.EntryRow(title=tr("Publisher Name"))
+        self.publisher_key = Adw.EntryRow(title=tr("Minisign Public Key"))
+        for row in (self.publisher_host, self.publisher_name, self.publisher_key):
+            self.publisher_group.add(row)
+        add = Adw.ButtonRow(title=tr("Trust This Publisher Key"))
+        add.connect("activated", self._add_publisher)
+        self.publisher_group.add(add)
+        self.publisher_rows = []
+        self._publisher_list()
+        page.add(self.publisher_group)
 
         lib = Adw.PreferencesGroup(title=tr("Library"))
         lib.add(_switch(tr("Show in GNOME Settings"),
@@ -128,6 +175,118 @@ class PreferencesDialog(Adw.PreferencesDialog):
         look.add(tour)
         page.add(look)
         return page
+
+    def _publisher_list(self):
+        from orbits.publishers import keys
+        from orbits.config import CONFIG_DIR
+        for row in self.publisher_rows:
+            self.publisher_group.remove(row)
+        self.publisher_rows = []
+        try:
+            records = keys(CONFIG_DIR)
+        except Exception as error:
+            self.add_toast(Adw.Toast(title=str(error)))
+            return
+        for record in records:
+            row = Adw.ActionRow(title=record['name'], subtitle=record['host'], use_markup=False)
+            remove = Gtk.Button(icon_name='user-trash-symbolic', valign=Gtk.Align.CENTER,
+                                tooltip_text=tr("Remove Trusted Publisher"))
+            remove.connect('clicked', lambda _button, key=record['key']: self._remove_publisher(key))
+            row.add_suffix(remove)
+            self.publisher_rows.append(row)
+            self.publisher_group.add(row)
+
+    def _add_publisher(self, *_args):
+        from orbits.publishers import keys, save_keys
+        from orbits.config import CONFIG_DIR
+        try:
+            record = {'host': self.publisher_host.get_text().strip().lower(),
+                      'name': self.publisher_name.get_text().strip(), 'key': self.publisher_key.get_text().strip()}
+            records = keys(CONFIG_DIR)
+            if any(item['host'] == record['host'] and item['key'] == record['key'] for item in records):
+                raise ValueError('This publisher key is already trusted')
+            save_keys(CONFIG_DIR, records + [record])
+            self.publisher_key.set_text('')
+            self._publisher_list()
+        except Exception as error:
+            self.add_toast(Adw.Toast(title=str(error)))
+
+    def _remove_publisher(self, key):
+        from orbits.publishers import keys, save_keys
+        from orbits.config import CONFIG_DIR
+        try:
+            save_keys(CONFIG_DIR, [item for item in keys(CONFIG_DIR) if item['key'] != key])
+            self._publisher_list()
+        except Exception as error:
+            self.add_toast(Adw.Toast(title=str(error)))
+
+    def _validate_legacy(self, *_args):
+        from orbits import net, themes
+        from orbits.fonts import get_font_library
+        from orbits.looks import get_store
+        from orbits.legacy_safety import revalidate
+        jobs = [('wallpaper', entry['dir']) for entry in get_library().items.values()]
+        jobs += [('font', entry['dir']) for entry in get_font_library().items.values() if entry.get('scope') == 'user']
+        jobs += [('look', look['_dir']) for look in get_store().looks()]
+        for kind in KINDS:
+            jobs += [(kind, str(theme.path)) for theme in themes.installed(kind) if theme.managed and theme.scope == 'user']
+        self.legacy_row.set_sensitive(False)
+        self.legacy_row.set_subtitle(tr("Validating older managed assets…"))
+        def done(result, error):
+            self.legacy_row.set_sensitive(True)
+            self.legacy_row.set_subtitle(str(error) if error else result)
+        net.run_async(lambda: revalidate(list(dict.fromkeys(jobs))), done)
+
+    def _asset_roots(self):
+        from orbits.fonts import USER_FONT_DIR
+        from orbits.looks import LOOKS_DIR
+        roots = {download_dir(), USER_FONT_DIR, LOOKS_DIR}
+        roots.update(kind.user_dir for kind in KINDS.values() if kind.user_dir)
+        return sorted(roots)
+
+    def _refresh_security_status(self, *_args):
+        from orbits import net
+        from orbits.config import DATA_DIR
+        from orbits.security import definition_status
+        self.security_status.set_subtitle(tr("Checking protection status…"))
+        def done(result, error):
+            self.security_status.set_subtitle(str(error) if error else result)
+        net.run_async(lambda: definition_status(DATA_DIR/'clamav', settings), done)
+
+    def _check_integrity(self, *_args):
+        from orbits import net
+        from orbits.integrity import audit_roots
+        roots = self._asset_roots()
+        self.integrity_row.set_sensitive(False)
+        self.integrity_row.set_subtitle(tr("Checking installed file hashes…"))
+        def done(result, error):
+            self.integrity_row.set_sensitive(True)
+            self.integrity_row.set_subtitle(str(error) if error else result)
+        net.run_async(lambda: audit_roots(roots), done)
+
+    def _rescan_assets(self, *_args):
+        from orbits import net
+        from orbits.security import rescan_assets
+        roots = self._asset_roots()
+        self.rescan_row.set_sensitive(False)
+        self.rescan_row.set_subtitle(tr("Scanning existing appearance assets…"))
+        def done(result, error):
+            self.rescan_row.set_sensitive(True)
+            self.rescan_row.set_subtitle(str(error) if error else tr(result))
+        net.run_async(lambda: rescan_assets(sorted(roots)), done)
+
+    def _update_definitions(self, *_args):
+        from orbits import net
+        from orbits.config import DATA_DIR
+        from orbits.security import update_definitions
+        self.definitions_row.set_sensitive(False)
+        self.definitions_row.set_subtitle(tr("Updating virus definitions…"))
+        offline = bool(settings.get('offline'))
+        def done(result, error):
+            self.definitions_row.set_sensitive(True)
+            self.definitions_row.set_subtitle(str(error) if error else tr(result))
+            self._refresh_security_status()
+        net.run_async(lambda: update_definitions(DATA_DIR / 'clamav', offline=offline), done)
 
     def _choose_dir(self, *_):
         dlg = Gtk.FileDialog(title=tr("Choose Download Location"), initial_folder=Gio.File.new_for_path(str(download_dir())))

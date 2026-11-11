@@ -192,7 +192,11 @@ class GdmPreview(Gtk.Overlay):
 
         def work():
             path = Gio.File.new_for_uri(uri).get_path()
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 1280, 1280, True)
+            import tempfile
+            from orbits.image_safety import normalize_images
+            with tempfile.TemporaryDirectory(prefix='orbits-gdm-image-') as temporary:
+                normalized = normalize_images(path, temporary, size=1280)[0]
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(normalized), 1280, 1280, True)
             return Gdk.Texture.new_for_pixbuf(pb)
 
         if uri:
@@ -216,7 +220,11 @@ class GdmPreview(Gtk.Overlay):
                 if monitors:
                     assignments = [dict(rec, path=rec.get(variant) or path) for rec in monitors]
                     source = str(compose_monitors(assignments, Path(tmp) / "layout.png"))
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(source, 2560, 2560, True)
+                import tempfile
+                from orbits.image_safety import normalize_images
+                with tempfile.TemporaryDirectory(prefix='orbits-gdm-image-') as temporary:
+                    normalized = normalize_images(source, temporary, size=2560)[0]
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(normalized), 2560, 2560, True)
                 return Gdk.Texture.new_for_pixbuf(pb)
 
         def done(tex, err):

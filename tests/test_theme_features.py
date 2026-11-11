@@ -273,3 +273,16 @@ class PreviewTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+# Unit suites execute trusted worker code in child processes; live isolation has
+# a separate required integration profile and never changes production behavior.
+def setUpModule():
+    from tests.parser_fixtures import run_worker
+    global _parser_fixture
+    _parser_fixture = patch('orbits.parser_sandbox.run', side_effect=run_worker)
+    _parser_fixture.start()
+
+
+def tearDownModule():
+    _parser_fixture.stop()

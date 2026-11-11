@@ -220,7 +220,7 @@ class BootThemeManager(GObject.Object):
             with tempfile.TemporaryDirectory(prefix="orbits-boot-") as tmp:
                 tmp = Path(tmp)
                 archive = tmp / (re.sub(r"[^A-Za-z0-9._-]", "_", download.name) or "theme")
-                net.download(download.url, archive, report)
+                net.download(download.url, archive, report, allow_local=item.source == f"local-{self.loader}")
                 unpack = tmp / "u"
                 unpack.mkdir()
                 _safe_unpack(archive, unpack)
@@ -230,7 +230,9 @@ class BootThemeManager(GObject.Object):
                     what = "theme.txt" if self.loader == "grub" else "theme.conf"
                     raise RuntimeError(f"No {LOADER_NAMES[self.loader]} theme ({what}) found in {download.name}")
                 staged = []
+                from orbits.asset_validation import validate_theme_tree
                 for src, name in themes:
+                    validate_theme_tree(src, self.loader)
                     dest = Path(tempfile.mkdtemp(prefix=f"boot-{self.loader}-", dir=STAGING))
                     stage_paths.append(dest)
                     shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True)

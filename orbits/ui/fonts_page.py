@@ -2,6 +2,7 @@
 from orbits.i18n import _ as tr
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
+from orbits.ui.font_preview import load as load_font_preview
 from orbits import net
 from orbits.fonts import get_font_library
 from orbits.ui.font_actions import (ROLES, apply_menu_button, font_attrs, install_system_wide, remove_system_wide,
@@ -158,8 +159,9 @@ class FontsPage(Adw.Bin):
                                 subtitle=f"{SCOPE_LABEL.get(e['scope'], e['scope'])} · {len(e['files'])} file"
                                          f"{'s' if len(e['files']) != 1 else ''}"
                                          + (f" · {', '.join(e['families'][:3])}" if len(e["families"]) > 1 else ""))
-            sample = Gtk.Label(label=tr("Aa"), width_chars=3, css_classes=["font-row-sample"])
-            sample.set_attributes(font_attrs(fam, 20))
+            sample = Gtk.Picture(width_request=64, height_request=44)
+            if e['files']:
+                load_font_preview(sample, e['files'][0], 'Aa', 20)
             row.add_prefix(sample)
             enabled=Gtk.Switch(active=e.get("enabled",True),valign=Gtk.Align.CENTER,tooltip_text=tr("Enable for Your User"))
             enabled.connect("state-set",lambda switch,state,key=e["key"]:self._enabled(key,state))
@@ -271,9 +273,16 @@ class FontsPage(Adw.Bin):
         matches = [f for f in self._families if self.query in f.lower()]
         for fam in matches[:MAX_ROWS]:
             row = Adw.ActionRow(title=GLib.markup_escape_text(fam))
-            sample = Gtk.Label(label=tr("The quick brown fox"), xalign=1, ellipsize=Pango.EllipsizeMode.END,
-                               hexpand=True, max_width_chars=26, css_classes=["dim-label"])
-            sample.set_attributes(font_attrs(fam, 13))
+            sample = Gtk.Picture(height_request=36, hexpand=True)
+            def resolve(family=fam):
+                import subprocess
+                return subprocess.run(['fc-match', '--format', '%{file}', family], capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+            def ready(path, error, picture=sample):
+                if error:
+                    picture.set_tooltip_text(str(error))
+                elif path:
+                    load_font_preview(picture, path, 'The quick brown fox', 13)
+            net.run_async(resolve, ready)
             row.add_suffix(sample)
             detail=Gtk.Button(icon_name="document-properties-symbolic",tooltip_text=tr("Font Details & Glyph Map"),valign=Gtk.Align.CENTER)
             detail.connect("clicked",lambda _button,f=fam:self.inspect_system(f))

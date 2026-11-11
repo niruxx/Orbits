@@ -242,29 +242,21 @@ def extract_fonts(archive: Path, dest: Path, prefer=()):
     def wanted(name):
         return Path(name).suffix.lower() in FONT_EXTS or Path(name).name.upper().startswith(("OFL", "LICENSE"))
 
-    names = []
-    if zipfile.is_zipfile(archive):
-        with zipfile.ZipFile(archive) as z:
-            infos = [i for i in z.infolist() if not i.is_dir() and wanted(i.filename)]
-            if prefer:
-                pref = [i for i in infos if i.filename.startswith(prefer) or "LICENSE" in i.filename.upper()]
-                infos = pref or infos
-            for i in infos:
-                target = dest / Path(i.filename).name
-                with z.open(i) as src, open(target, "wb") as out:
-                    shutil.copyfileobj(src, out)
-                names.append(target)
-    else:
-        with tarfile.open(archive) as t:
-            for m in t.getmembers():
-                if m.isfile() and wanted(m.name):
-                    src = t.extractfile(m)
-                    target = dest / Path(m.name).name
-                    with open(target, "wb") as out:
-                        shutil.copyfileobj(src, out)
-                    names.append(target)
-    if not any(Path(n).suffix.lower() in FONT_EXTS for n in names):
-        raise RuntimeError("No font files found in the download")
+    from orbits.safe_archive import extract
+    with tempfile.TemporaryDirectory(prefix='orbits-font-extract-') as temporary:
+        extract(archive, temporary, wanted=wanted)
+        candidates = [p for p in Path(temporary).rglob('*') if p.is_file()]
+        if prefer:
+            preferred = [p for p in candidates if str(p.relative_to(temporary)).startswith(prefer) or 'LICENSE' in p.name.upper()]
+            candidates = preferred or candidates
+        dest.mkdir(parents=True, exist_ok=True)
+        for source in candidates:
+            target = dest/source.name
+            if target.exists():
+                raise ValueError('Font archive contains colliding filenames')
+            shutil.copyfile(source, target)
+    if not any(p.suffix.lower() in FONT_EXTS for p in dest.iterdir()):
+        raise RuntimeError('No font files found in the download')
 
 
 FONT_SOURCES = [GoogleFontsSource(), NerdFontsSource()]
@@ -284,35 +276,37 @@ def preview_font_file(item: FontItem):
     if not path.exists():
         data = net.get_bytes(item.preview_url, timeout=20)
         path.write_bytes(data)
+    from orbits.security import checked_local_file
+    with checked_local_file(path) as captured:
+        with tempfile.NamedTemporaryFile(dir=PREVIEW_DIR, delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                with captured.open('rb') as incoming:
+                    shutil.copyfileobj(incoming, output)
+            except Exception:
+                temporary.unlink(missing_ok=True)
+                raise
+        try:
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
     return path
 
 
 def register_preview(path, fontmap):
-    """Make a font file usable by this process' Pango (main thread)."""
-    with _preview_lock:
-        if str(path) in _registered_previews:
-            return True
-        try:
-            fontmap.add_font_file(str(path))
-        except (GLib.Error, AttributeError):
-            return False
-        _registered_previews.add(str(path))
-        return True
+    """Untrusted fonts must never be registered with the GUI's Pango font map."""
+    return False
 
 
 def families_in(files):
-    """Family names defined by font files, via fc-scan."""
-    fams = []
-    for f in files:
-        try:
-            out = subprocess.run(["fc-scan", "--format", "%{family[0]}\n", str(f)], capture_output=True,
-                                 text=True, timeout=20).stdout
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        for line in out.splitlines():
-            if line.strip() and line.strip() not in fams:
-                fams.append(line.strip())
-    return fams
+    """Family names from isolated font metadata inspection."""
+    from orbits.font_safety import inspect_font
+    families = []
+    for path in files:
+        family = inspect_font(path)['family']
+        if family not in families:
+            families.append(family)
+    return families
 
 
 def system_families():
@@ -398,13 +392,22 @@ class FontLibrary(GObject.Object):
             with tempfile.TemporaryDirectory(prefix="orbits-font-") as tmp:
                 tmp = Path(tmp)
                 source.download_files(item, tmp, report)
-                if dest.exists():
-                    shutil.rmtree(dest)
-                dest.mkdir(parents=True)
-                for f in tmp.iterdir():
-                    if f.is_file():
-                        shutil.move(str(f), dest / f.name)
+                from orbits.asset_validation import validate_font
+                candidates = [path for path in tmp.iterdir() if path.suffix.lower() in FONT_EXTS]
+                if not candidates:
+                    raise ValueError('No fonts found in download')
+                for path in candidates:
+                    validate_font(path)
+                USER_FONT_DIR.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory(prefix='.orbits-font-', dir=USER_FONT_DIR) as temporary:
+                    tree = Path(temporary)/'ready'
+                    shutil.copytree(tmp, tree)
+                    from orbits.integrity import record_tree, publish_tree
+                    record_tree(tree)
+                    publish_tree(tree, dest)
             subprocess.run(["fc-cache", "-f", str(dest)], capture_output=True, timeout=120)
+            from orbits.integrity import record_tree
+            record_tree(dest)
             files = [str(f) for f in sorted(dest.iterdir()) if f.suffix.lower() in FONT_EXTS]
             return {"key": item.key, "source": item.source, "id": item.id, "family": item.family,
                     "families": families_in(files) or [item.family], "slug": slug, "dir": str(dest),
@@ -457,6 +460,7 @@ class FontLibrary(GObject.Object):
         else:
             self.items.pop(key)
         self._save()
+        self._refresh_fonts()
         self.emit("changed")
 
     def collections(self):
@@ -495,6 +499,9 @@ class FontLibrary(GObject.Object):
     def set_enabled(self, key, enabled):
         from orbits.font_tools import write_fontconfig
         entry = self.items[key]
+        if enabled:
+            from orbits.integrity import verify_tree
+            verify_tree(entry["dir"])
         previous = entry.get("enabled",True)
         entry["enabled"] = bool(enabled)
         try:
@@ -522,6 +529,13 @@ class FontLibrary(GObject.Object):
                 dest = USER_FONT_DIR / slug
                 USER_FONT_DIR.mkdir(parents=True,exist_ok=True)
                 created=not dest.exists()
+                if not created:
+                    from orbits.integrity import verify_tree, _hash_file
+                    verify_tree(dest)
+                    for incoming in data['files']:
+                        existing = dest/incoming.name
+                        if not existing.is_file() or existing.is_symlink() or _hash_file(existing)[0] != _hash_file(incoming)[0]:
+                            raise ValueError('Installed font differs from the validated import; remove it before importing again')
                 if created:
                     with tempfile.TemporaryDirectory(prefix=".orbits-font-",dir=USER_FONT_DIR) as staged:
                         tree = Path(staged)/"font"
@@ -533,6 +547,8 @@ class FontLibrary(GObject.Object):
                 except Exception:
                     if created:shutil.rmtree(dest,ignore_errors=True)
                     raise
+                from orbits.integrity import record_tree
+                record_tree(dest)
                 family = data["families"][0]
                 return {"key":key,"source":"local-fonts","id":data["digest"][:24],"slug":slug,
                         "family":family,"families":data["families"],"dir":str(dest),"files":files,
@@ -563,6 +579,10 @@ class FontLibrary(GObject.Object):
     @reversible("Font updated", extra=lambda self, family, *args, **kwargs: EntryState(self,
         [key for key, entry in self.items.items() if family in entry.get("families", []) or entry.get("family") == family], []))
     def apply(self, family, role, size=None, variations=None):
+        from orbits.integrity import verify_tree
+        for entry in self.items.values():
+            if family in entry.get('families', []) or family == entry.get('family'):
+                verify_tree(entry['dir'])
         if variations:
             if not re.fullmatch(r"[A-Za-z0-9]{4}=-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?(?:,[A-Za-z0-9]{4}=-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?)*",variations):
                 raise ValueError("Invalid font axis values")

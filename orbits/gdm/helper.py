@@ -32,6 +32,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import struct
+from pathlib import Path, PurePosixPath
+import xml.etree.ElementTree as ET
 
 from gi.repository import Gio, GLib
 
@@ -82,7 +85,7 @@ def read_user_file(path, max_bytes=64 << 20):
     """Read a file the invoking user owns. Prevents leaking root-only files into world-readable places."""
     if not os.path.isabs(path):
         raise ValueError(f"not an absolute path: {path}")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
@@ -93,7 +96,10 @@ def read_user_file(path, max_bytes=64 << 20):
             raise ValueError(f"{path} is too large")
         with os.fdopen(fd, "rb") as f:
             fd = None
-            return f.read()
+            data = f.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise ValueError("File grew beyond its size limit")
+            return data
     finally:
         if fd is not None:
             os.close(fd)
@@ -426,6 +432,290 @@ def edit_custom_conf(values: dict):
     log(f"updated {path}")
 
 
+INTEGRITY_MANIFEST = '.orbits-integrity.json'
+
+
+def _hash_file(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 512 * 1024**2:
+            raise ValueError('Invalid asset file for integrity checking')
+        digest, count = hashlib.sha256(), 0
+        while chunk := stream.read(65536):
+            count += len(chunk)
+            if count > 512 * 1024**2:
+                raise ValueError('Asset grew beyond its size limit')
+            digest.update(chunk)
+        after = os.fstat(stream.fileno())
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise ValueError('Asset changed during integrity checking')
+        return digest.hexdigest(), count
+
+
+def _tree_hashes(root):
+    root = Path(root)
+    if root.is_symlink():
+        raise ValueError('Asset directory must not be a link')
+    result, total = {}, 0
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        for name in dirs:
+            if (Path(directory)/name).is_symlink():
+                raise ValueError('Asset directory contains a link')
+        for name in files:
+            path = Path(directory)/name
+            relative = str(path.relative_to(root))
+            if relative in (INTEGRITY_MANIFEST, '.uuid'):
+                continue
+            value, size = _hash_file(path)
+            total += size
+            if len(result) >= 10000 or total > 1024**3:
+                raise ValueError('Integrity check exceeds its size limits')
+            result[relative] = value
+    return result
+
+
+def record_tree(root, *, plain=False):
+    root = Path(root)
+    values = _tree_hashes(root)
+    with tempfile.NamedTemporaryFile(mode='w', dir=root, prefix='.integrity-', delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            json.dump({'version': 1, 'sha256': values}, stream, sort_keys=True)
+            stream.flush()
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+    try:
+        if not plain:
+            os.chmod(temporary, 0o644)
+        os.replace(temporary, root/INTEGRITY_MANIFEST)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def verify_tree(root):
+    root = Path(root)
+    manifest = root/INTEGRITY_MANIFEST
+    if not manifest.exists() and not manifest.is_symlink():
+        return None  # Legacy assets have no trusted baseline; do not silently create one.
+    descriptor = os.open(manifest, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'r') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError('Invalid integrity manifest')
+        text = stream.read(2 * 1024**2 + 1)
+        if len(text) > 2 * 1024**2:
+            raise ValueError('Integrity manifest exceeds its limit')
+        data = json.loads(text)
+    expected = data.get('sha256') if isinstance(data, dict) and data.get('version') == 1 else None
+    if not isinstance(expected, dict) or len(expected) > 10000:
+        raise ValueError('Invalid integrity manifest')
+    for name, digest in expected.items():
+        path = PurePosixPath(name)
+        if path.is_absolute() or '..' in path.parts or not path.parts or '\\' in name or not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+            raise ValueError('Invalid integrity manifest entry')
+    actual = _tree_hashes(root)
+    changed = sorted(name for name in set(actual) | set(expected) if actual.get(name) != expected.get(name))
+    if changed:
+        raise ValueError('Installed asset changed since validation: ' + ', '.join(changed[:5]))
+    return True
+
+
+
+# Shared data-only validation policy (kept self-contained for isolated helper execution).
+FONT_SUFFIXES = {'.ttf', '.otf', '.ttc', '.otc'}
+TEXT_SUFFIXES = {'.css', '.rc', '.theme', '.desktop', '.conf', '.ini', '.json', '.xml', '.txt', '.md', '.rst', '.colors', '.colorscheme', '.svg', '.svgz', '.plymouth', '.script', '.cfg', '.map'}
+BINARY_SUFFIXES = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.xpm', '.xcursor', '.cur', '.ogg', '.oga', '.wav', '.flac', '.pf2', '.gresource', '.ttf', '.otf'}
+BLOCKED_SUFFIXES = {'.sh', '.bash', '.zsh', '.fish', '.py', '.pyc', '.js', '.qml', '.so', '.dll', '.exe', '.desktop.in', '.service', '.socket', '.timer', '.rules'}
+
+
+def validate_font_bytes(data):
+    """Bound SFNT tables without invoking a font renderer (also used by root helper)."""
+    def sfnt(offset):
+        if offset < 0 or offset + 12 > len(data) or data[offset:offset+4] not in (b'\x00\x01\x00\x00', b'OTTO', b'true'):
+            raise ValueError('Invalid font signature')
+        count = struct.unpack_from('>H', data, offset + 4)[0]
+        if not 1 <= count <= 256 or offset + 12 + count * 16 > len(data):
+            raise ValueError('Invalid font table directory')
+        tags = set()
+        for index in range(count):
+            tag, _checksum, start, length = struct.unpack_from('>4sIII', data, offset + 12 + index * 16)
+            if tag in tags or start > len(data) or length > len(data) - start:
+                raise ValueError('Invalid font table bounds')
+            tags.add(tag)
+        if not {b'head', b'maxp', b'cmap', b'name'}.issubset(tags):
+            raise ValueError('Required font tables are missing')
+    if len(data) > 128 * 1024**2:
+        raise ValueError('Font exceeds its size limit')
+    if data[:4] == b'ttcf':
+        if len(data) < 12:
+            raise ValueError('Invalid font collection')
+        count = struct.unpack_from('>I', data, 8)[0]
+        if not 1 <= count <= 256 or 12 + 4 * count > len(data):
+            raise ValueError('Invalid font collection directory')
+        for offset in struct.unpack_from('>' + 'I' * count, data, 12):
+            sfnt(offset)
+    else:
+        sfnt(0)
+
+
+def validate_font(path):
+    path = Path(path)
+    if path.stat().st_size > 128 * 1024**2:
+        raise ValueError('Font exceeds its size limit')
+    validate_font_bytes(path.read_bytes())
+
+
+def validate_theme_file(path, relative, kind):
+    suffix = path.suffix.lower()
+    name = path.name.lower()
+    if suffix in BLOCKED_SUFFIXES or re.search(r'\.so(?:\.\d+)*$', name):
+        raise ValueError(f'Executable or service file is not allowed in a theme: {relative}')
+    with path.open('rb') as stream:
+        header = stream.read(4096)
+    if header.startswith((b'\x7fELF', b'MZ', b'#!', b'\xca\xfe\xba\xbe', b'\xcf\xfa\xed\xfe')):
+        raise ValueError(f'Executable content is not allowed in a theme: {relative}')
+    if suffix == '.script':
+        raise ValueError('Downloaded scripted themes are blocked because the boot runtime cannot sandbox them')
+    signatures = {'.png': (b'\x89PNG\r\n\x1a\n',), '.jpg': (b'\xff\xd8\xff',),
+                  '.jpeg': (b'\xff\xd8\xff',), '.gif': (b'GIF87a', b'GIF89a'),
+                  '.bmp': (b'BM',), '.wav': (b'RIFF',), '.ogg': (b'OggS',),
+                  '.oga': (b'OggS',), '.flac': (b'fLaC',)}
+    if suffix in signatures and not header.startswith(signatures[suffix]):
+        raise ValueError(f'Theme asset signature does not match its type: {relative}')
+    if suffix == '.webp' and not (header.startswith(b'RIFF') and header[8:12] == b'WEBP'):
+        raise ValueError('Invalid WebP theme asset')
+    if suffix in FONT_SUFFIXES:
+        validate_font(path)
+    text_name = name.startswith(('readme', 'license', 'copying', 'authors', 'ofl', 'changelog', 'copyright')) or name in {'gtkrc', 'metadata', 'theme.txt', 'theme.conf', '.orbits.json'}
+    # Cursor files normally have no extension; identify their binary signature.
+    if suffix not in TEXT_SUFFIXES | BINARY_SUFFIXES and not text_name and not header.startswith(b'Xcur'):
+        raise ValueError(f'Unsupported theme asset type: {relative}')
+    if suffix in TEXT_SUFFIXES or text_name:
+        if path.stat().st_size > 8 * 1024**2:
+            raise ValueError(f'Theme configuration is too large: {relative}')
+        if suffix == '.svgz':
+            raise ValueError('Compressed SVG theme assets are not supported')
+        text = path.read_text(encoding='utf-8-sig')
+        if '\x00' in text:
+            raise ValueError(f'Binary content in theme configuration: {relative}')
+        if suffix == '.plymouth':
+            import configparser
+            config = configparser.ConfigParser(interpolation=None)
+            config.read_string(text)
+            module = config.get('Plymouth Theme', 'ModuleName', fallback='')
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', module) or module.lower() == 'script':
+                raise ValueError('Scripted or invalid Plymouth modules are not allowed')
+        if suffix == '.desktop' and re.search(r'^\s*(Exec|TryExec|DBusActivatable)\s*=', text, re.M | re.I):
+            raise ValueError('Theme metadata cannot launch applications')
+        if suffix in ('.css', '.svg', '.xml') and re.search(r'%[0-9a-fA-F]{2}|\\(?:[0-9a-fA-F]{1,6}|[./:])', text):
+            raise ValueError('Encoded resource references are not allowed in themes')
+        if suffix in ('.svg', '.xml'):
+            if re.search(r'<!\s*(DOCTYPE|ENTITY)', text, re.I):
+                raise ValueError('External XML declarations are not allowed in themes')
+            document = ET.fromstring(text)
+            if suffix == '.svg':
+                for node in document.iter():
+                    if node.tag.rsplit('}', 1)[-1].lower() in ('script', 'foreignobject'):
+                        raise ValueError('Active SVG content is not allowed in themes')
+                    for key, value in node.attrib.items():
+                        name_ = key.rsplit('}', 1)[-1].lower()
+                        if name_.startswith('on') or (name_ in ('href', 'base') and (value.startswith(('/', '//')) or ':' in value or '..' in Path(value).parts)):
+                            raise ValueError('Active or external SVG references are not allowed')
+        if suffix in ('.css', '.svg', '.xml') and re.search(r'(?:https?:|file:|ftp:|//|\.\./)', text, re.I):
+            # Namespace declarations are identifiers, not resource fetches.
+            scrubbed = re.sub(r'xmlns(?::[\w-]+)?\s*=\s*[\"\'][^\"\']*[\"\']', '', text)
+            scrubbed = re.sub(r'/\*.*?\*/', '', scrubbed, flags=re.S)
+            if re.search(r'(?:https?:|file:|ftp:|url\(\s*[\"\']?//|\.\./)', scrubbed, re.I):
+                raise ValueError('Theme assets cannot reference external resources or parent paths')
+
+
+def validate_theme_tree(root, kind):
+    import os
+    root = Path(root)
+    count, total = 0, 0
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        for name in dirs + files:
+            path = Path(directory)/name
+            if path.is_symlink():
+                raise ValueError('Theme links are not supported')
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise ValueError('Theme contains a special file')
+            count += 1
+            total += path.stat().st_size
+            if count > 10000 or total > 1024**3 or path.stat().st_size > 512 * 1024**2:
+                raise ValueError('Theme exceeds its size limits')
+            validate_theme_file(path, path.relative_to(root), kind)
+
+
+def _snapshot_user_tree(source, destination, *, plain=False):
+    """Anchor every read to open directory FDs, then validate the root-owned copy."""
+    uid, total, entries = invoking_uid(), 0, 0
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    def walk(descriptor, output, depth):
+        nonlocal total, entries
+        current = os.fstat(descriptor)
+        if current.st_uid != uid or not stat.S_ISDIR(current.st_mode) or current.st_mode & 0o6022:
+            raise PermissionError('Asset directories must be owned by you without unsafe permissions')
+        if depth > 20:
+            raise ValueError('Asset directory is too deep')
+        os.mkdir(output, 0o755)
+        for name in os.listdir(descriptor):
+            entries += 1
+            if entries > 10000 or len(name) > 255 or name in ('.', '..'):
+                raise ValueError('Asset tree exceeds its entry limit')
+            child = os.open(name, flags, dir_fd=descriptor)
+            try:
+                before = os.fstat(child)
+                if before.st_uid != uid or before.st_mode & 0o6022:
+                    raise PermissionError('Asset has unsafe ownership or permissions')
+                target = os.path.join(output, name)
+                if stat.S_ISDIR(before.st_mode):
+                    walk(child, target, depth + 1)
+                elif stat.S_ISREG(before.st_mode) and before.st_nlink == 1:
+                    if before.st_size > 512 * 1024**2:
+                        raise ValueError('Asset file exceeds its size limit')
+                    with open(target, 'xb') as stream:
+                        count = 0
+                        while chunk := os.read(child, 65536):
+                            total += len(chunk)
+                            count += len(chunk)
+                            if total > 1024**3 or count > 512 * 1024**2:
+                                raise ValueError('Asset tree exceeds its byte limit')
+                            stream.write(chunk)
+                    after = os.fstat(child)
+                    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns) or count != before.st_size:
+                        raise ValueError('Asset changed while it was being copied')
+                    if not plain:
+                        os.chmod(target, 0o644)
+                else:
+                    raise PermissionError('Asset links and special files are not supported')
+            finally:
+                os.close(child)
+    descriptor = os.open(source, flags | os.O_DIRECTORY)
+    try:
+        walk(descriptor, destination, 0)
+    finally:
+        os.close(descriptor)
+
+
+def _publish_asset_tree(staged, destination):
+    if os.path.islink(destination) or os.path.islink(os.path.dirname(destination)):
+        raise PermissionError('Asset destination must not be a symbolic link')
+    backup = os.path.join(os.path.dirname(staged), 'previous')
+    previous = os.path.exists(destination)
+    if previous:
+        os.rename(destination, backup)
+    try:
+        os.rename(staged, destination)
+    except Exception:
+        if previous:
+            os.rename(backup, destination)
+        raise
+
+
 # ---------------------------------------------------------------- fonts
 SYSTEM_FONTS = "/usr/share/fonts/orbits"
 FONT_FILE_RE = re.compile(r"^[^/]+\.(ttf|otf|ttc|otc)$|^(OFL|LICENSE)[^/]*$", re.I)
@@ -435,19 +725,32 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
 def cmd_font_install(src_dir, slug):
     if not SLUG_RE.match(slug):
         raise ValueError(f"bad font name {slug!r}")
-    names = [n for n in os.listdir(src_dir) if FONT_FILE_RE.match(n)]
-    if not any(not n.upper().startswith(("OFL", "LICENSE")) for n in names):
-        raise ValueError("no font files to install")
+    if os.path.islink(SYSTEM_FONTS):
+        raise PermissionError('System font destination cannot be a link')
+    os.makedirs(SYSTEM_FONTS, mode=0o755, exist_ok=True)
     dest = os.path.join(SYSTEM_FONTS, slug)
-    if os.path.isdir(dest):
-        shutil.rmtree(dest)
-    os.makedirs(dest, mode=0o755)
-    for n in names:
-        atomic_write(os.path.join(dest, n), read_user_file(os.path.join(src_dir, n), 256 << 20))
-    os.chmod(SYSTEM_FONTS, 0o755)
+    with tempfile.TemporaryDirectory(prefix='.orbits-font-', dir=SYSTEM_FONTS) as temporary:
+        staged = os.path.join(temporary, 'font')
+        _snapshot_user_tree(src_dir, staged)
+        names = os.listdir(staged)
+        fonts = []
+        for name in names:
+            path = Path(staged)/name
+            if not path.is_file():
+                raise ValueError('Font packages must contain regular files only')
+            if path.suffix.lower() in FONT_SUFFIXES:
+                validate_font(path)
+                fonts.append(name)
+            elif not name.upper().startswith(('OFL', 'LICENSE', 'COPYING')) and name != '.orbits-integrity.json':
+                raise ValueError('Unexpected file in font package')
+        if not fonts:
+            raise ValueError('No font files to install')
+        record_tree(staged)
+        _publish_asset_tree(staged, dest)
     relabel(dest)
-    subprocess.run(["fc-cache", "-f", SYSTEM_FONTS], check=False)
-    log(f"installed {len(names)} files to {dest}")
+    # Do not parse newly installed fonts as root. Desktop font caches refresh
+    # in the invoking user's session or lazily when Fontconfig sees directory changes.
+    log(f'installed {len(fonts)} fonts to {dest}')
 
 
 def cmd_font_remove(slug):
@@ -456,7 +759,6 @@ def cmd_font_remove(slug):
     dest = os.path.join(SYSTEM_FONTS, slug)
     if os.path.isdir(dest):
         shutil.rmtree(dest)
-        subprocess.run(["fc-cache", "-f"], check=False)
         log(f"removed {dest}")
 
 
@@ -471,9 +773,12 @@ MAX_THEME_BYTES = 2 << 30
 def _theme_dest(base_key, name):
     if base_key not in THEME_BASES:
         raise ValueError(f"unknown theme location {base_key!r}")
-    if not THEME_NAME_RE.match(name):
+    if not THEME_NAME_RE.fullmatch(name):
         raise ValueError(f"bad theme name {name!r}")
-    return os.path.join(THEME_BASES[base_key], name)
+    dest = os.path.join(THEME_BASES[base_key], name)
+    if os.path.islink(THEME_BASES[base_key]) or os.path.islink(dest):
+        raise PermissionError('Theme destination must not be a symbolic link')
+    return dest
 
 
 def _check_tree(src):
@@ -504,13 +809,13 @@ def cmd_theme_install(base_key, src, name):
     dest = _theme_dest(base_key, name)
     if os.path.exists(dest) and not os.path.exists(os.path.join(dest, THEME_MARKER)):
         raise FileExistsError(f"{dest} exists and wasn't installed by Orbits")
-    _check_tree(src)
     parent = os.path.dirname(dest)
     os.makedirs(parent, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".orbits-", dir=parent)
     try:
         staged = os.path.join(tmp, "theme")
-        shutil.copytree(src, staged, symlinks=True)
+        _snapshot_user_tree(src, staged)
+        validate_theme_tree(staged, base_key)
         for dirpath, dirnames, filenames in os.walk(staged):
             os.chown(dirpath, 0, 0)
             os.chmod(dirpath, 0o755)
@@ -527,15 +832,14 @@ def cmd_theme_install(base_key, src, name):
         if not os.path.exists(marker):
             with open(marker, "w") as f:
                 json.dump({"installed_by": "orbits"}, f)
-        if os.path.exists(dest):
-            shutil.rmtree(dest)
-        os.rename(staged, dest)
+        record_tree(staged)
+        _publish_asset_tree(staged, dest)
         relabel(dest)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    if base_key == "icons" and shutil.which("gtk-update-icon-cache") and os.path.exists(
-            os.path.join(dest, "index.theme")):
-        subprocess.run(["gtk-update-icon-cache", "-q", "-f", "-t", dest], check=False)
+    # Leave icon-cache parsing to the unprivileged desktop rather than processing
+    # third-party icon resources with root privileges.
+    record_tree(dest)
     log(f"installed {dest}")
 
 
@@ -569,13 +873,18 @@ def rebuild_initramfs():
     else:
         raise RuntimeError("no initramfs tool found (mkinitcpio, dracut or update-initramfs)")
     log("rebuilding initramfs: " + " ".join(cmd))
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     if r.returncode != 0:
         tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
         raise RuntimeError("initramfs rebuild failed: " + " / ".join(tail))
 
 
 def cmd_plymouth_set(name):
+    if THEME_NAME_RE.fullmatch(name):
+        installed = Path(THEME_BASES['plymouth'])/name
+        verify_tree(installed)
+        if (installed/THEME_MARKER).is_file():
+            validate_theme_tree(installed, 'plymouth')
     dest = _theme_dest("plymouth", name)
     if not os.path.isdir(dest) or not any(f.endswith(".plymouth") for f in os.listdir(dest)):
         raise FileNotFoundError(f"boot splash {name!r} is not installed")
@@ -758,20 +1067,100 @@ def grub_current_theme():
     return current
 
 
+def _refind_text(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError('rEFInd configuration is not a regular file')
+        raw = stream.read(2 * 1024**2 + 1)
+    if len(raw) > 2 * 1024**2:
+        raise ValueError('rEFInd configuration is too large')
+    codec = 'utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig' if raw.startswith(b'\xef\xbb\xbf') else 'utf-8'
+    # Preserve UTF-16 byte order and BOM when saving.
+    if raw.startswith(b'\xfe\xff'):
+        return raw[2:].decode('utf-16-be'), 'utf-16-be-bom'
+    return raw.decode(codec), codec
+
+
+def _refind_tokens(line):
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ''  # EFI paths use backslashes, unlike a Unix shell.
+    return list(lexer)
+
+
 def refind_current_theme():
-    d = refind_dir()
-    if not d:
-        return ""
-    current = ""
-    with open(os.path.join(d, "refind.conf"), errors="replace") as f:
-        for line in f:
-            try:
-                tokens = shlex.split(line, comments=True)
-            except ValueError:
-                continue
-            if len(tokens) == 2 and tokens[0].lower() == "include" and tokens[1].startswith("themes/"):
-                current = tokens[1].split("/")[1]  # the last include wins in rEFInd
+    directory = refind_dir()
+    if not directory:
+        return ''
+    text, _codec = _refind_text(os.path.join(directory, 'refind.conf'))
+    current = ''
+    for line in text.splitlines():
+        tokens = _refind_tokens(line)
+        if len(tokens) == 2 and tokens[0].lower() == 'include':
+            path = tokens[1].replace('\\', '/')
+            parts = path.split('/')
+            if len(parts) == 3 and parts[0].lower() == 'themes' and parts[2].lower() == 'theme.conf':
+                current = parts[1]
     return current
+
+
+def _prepare_refind_theme(root, name):
+    root = Path(root)
+    resources = {'icons_dir', 'banner', 'selection_big', 'selection_small', 'font'}
+    path = root/'theme.conf'
+    text, codec = _refind_text(path)
+    result = []
+    for line in text.splitlines():
+        tokens = _refind_tokens(line)
+        if not tokens:
+            result.append(line)
+            continue
+        keyword = tokens[0].lower()
+        if keyword == 'include':
+            raise ValueError('rEFInd does not support nested theme includes; flatten theme.conf before importing')
+        if keyword in resources:
+            if len(tokens) != 2:
+                raise ValueError('Invalid rEFInd resource directive: ' + keyword)
+            value = tokens[1].replace('\\', '/')
+            parts = value.strip('/').split('/')
+            if 'themes' in parts:
+                index = parts.index('themes')
+                parts = parts[index + 2:]
+            if not parts or any(part in ('', '.', '..') for part in parts) or ':' in value:
+                raise ValueError('Invalid rEFInd resource path')
+            relative = '/'.join(parts)
+            target = root.joinpath(*parts)
+            if not target.resolve().is_relative_to(root.resolve()) or target.is_symlink():
+                raise ValueError('rEFInd resource escapes its theme')
+            valid = target.is_dir() if keyword == 'icons_dir' else target.is_file()
+            if not valid:
+                raise ValueError('Missing rEFInd resource: ' + relative)
+            result.append(f'{keyword} "themes/{name}/{relative}"')
+        else:
+            result.append(line)
+    _write_refind_text(path, '\n'.join(result) + '\n', codec)
+
+
+def _write_refind_text(path, text, codec):
+    data = b'\xfe\xff' + text.encode('utf-16-be') if codec == 'utf-16-be-bom' else text.encode(codec)
+    path = Path(path)
+    if path.is_symlink():
+        raise PermissionError('rEFInd configuration cannot be a symbolic link')
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.orbits-refind-', delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+    try:
+        # A same-directory rename works on an ESP too; FAT cannot store Unix modes.
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def cmd_boot_list():
@@ -819,18 +1208,21 @@ def cmd_boot_theme_install(loader, src, name):
         raise ValueError(f"{src} has no {_theme_file(loader)}")
     if os.path.exists(dest) and not os.path.exists(os.path.join(dest, BOOT_MARKER)):
         raise FileExistsError(f"{dest} exists and wasn't installed by Orbits")
-    _check_tree(src)
     os.makedirs(root, exist_ok=True)
     staging = tempfile.mkdtemp(prefix=".orbits-", dir=root)
     tmp = os.path.join(staging, "theme")
     try:
-        _copy_plain(src, tmp)
+        _snapshot_user_tree(src, tmp, plain=loader == "refind")
+        if not os.path.isfile(os.path.join(tmp, _theme_file(loader))):
+            raise ValueError('Boot theme configuration is missing from staged copy')
+        validate_theme_tree(tmp, loader)
+        if loader == "refind":
+            _prepare_refind_theme(tmp, name)
         if not os.path.exists(os.path.join(tmp, BOOT_MARKER)):
             with open(os.path.join(tmp, BOOT_MARKER), "w") as f:
                 json.dump({"installed_by": "orbits"}, f)
-        if os.path.exists(dest):
-            shutil.rmtree(dest)
-        os.rename(tmp, dest)
+        record_tree(tmp, plain=loader == "refind")
+        _publish_asset_tree(tmp, dest)
         relabel(dest)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -838,7 +1230,7 @@ def cmd_boot_theme_install(loader, src, name):
 
 
 def _theme_dest_in(root, name):
-    if not THEME_NAME_RE.match(name):
+    if not THEME_NAME_RE.fullmatch(name):
         raise ValueError(f"bad theme name {name!r}")
     dest = os.path.join(root, name)
     if os.path.islink(root) or os.path.islink(dest):
@@ -925,28 +1317,50 @@ def grub_mkconfig():
 
 
 def _set_refind_include(name):
-    """Replace (or with None, remove) Orbits' managed include block at the end of refind.conf."""
-    conf = os.path.join(refind_dir(), "refind.conf")
-    _backup_once(conf)
-    with open(conf, errors="replace") as f:
-        lines = f.read().splitlines()
-    out, skipping = [], False
+    directory = refind_dir()
+    if not directory:
+        raise FileNotFoundError('rEFInd configuration was not found')
+    conf = Path(directory)/'refind.conf'
+    text, codec = _refind_text(conf)
+    lines = text.splitlines(keepends=True)
+    out, inside, blocks = [], False, 0
     for line in lines:
         if line.strip() == REFIND_BEGIN:
-            skipping = True
-            continue
-        if skipping:
-            if line.strip() == REFIND_END:
-                skipping = False
-            continue
-        out.append(line)
-    while out and not out[-1].strip():
-        out.pop()
+            if inside or blocks:
+                raise ValueError('rEFInd configuration has multiple or nested Orbits blocks')
+            inside, blocks = True, blocks + 1
+            if out and not out[-1].strip():
+                out.pop()  # Separator written by older Orbits versions.
+        elif line.strip() == REFIND_END:
+            if not inside:
+                raise ValueError('rEFInd configuration has an unmatched Orbits block')
+            inside = False
+        elif not inside:
+            out.append(line)
+    if inside:
+        raise ValueError('rEFInd configuration has an unterminated Orbits block')
+    backup = Path(str(conf) + '.orbits-backup')
+    if backup.is_symlink():
+        raise PermissionError('rEFInd backup cannot be a symbolic link')
+    if not backup.exists():
+        with backup.open('xb') as stream:
+            stream.write(conf.read_bytes())
+            stream.flush()
+            os.fsync(stream.fileno())
+    result = ''.join(out)
+    newline = '\r\n' if '\r\n' in text else '\n'
     if name is not None:
-        out += ["", REFIND_BEGIN, f'include "themes/{name}/theme.conf"', REFIND_END]
-    with open(conf, "w") as f:  # FAT32: no atomic rename guarantees across files, write in place
-        f.write("\n".join(out) + "\n")
-    log(f"updated {conf}")
+        if not THEME_NAME_RE.fullmatch(name):
+            raise ValueError('Invalid rEFInd theme name')
+        if result and not result.endswith(('\n', '\r')):
+            result += newline
+        result += REFIND_BEGIN + newline + f'include "themes/{name}/theme.conf"' + newline + REFIND_END + newline
+    else:
+        original, _ = _refind_text(backup)
+        if result == original + newline:
+            result = original
+    _write_refind_text(conf, result, codec)
+    log(f'updated {conf}')
 
 
 def cmd_boot_theme_apply(loader, name):
@@ -954,6 +1368,7 @@ def cmd_boot_theme_apply(loader, name):
     dest = _theme_dest_in(root, name)
     if not os.path.isfile(os.path.join(dest, _theme_file(loader))):
         raise FileNotFoundError(f"{name} isn't installed for {loader}")
+    verify_tree(dest)
     if loader == "grub":
         _change_grub_theme(os.path.join(dest, "theme.txt"))
     else:
@@ -1191,7 +1606,7 @@ def cmd_undo(token):
             subprocess.run(["systemctl", "enable" if os.path.exists(UPDATE_PATH) else "disable",
                             "--now", "orbits-gdm-reapply.path"], check=False)
     elif refresh == "fonts":
-        subprocess.run(["fc-cache", "-f", SYSTEM_FONTS], check=True)
+        pass  # User-session Fontconfig handles cache refresh after undo.
     elif refresh == "plymouth":
         rebuild_initramfs()
     shutil.rmtree(directory)

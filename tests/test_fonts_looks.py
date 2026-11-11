@@ -66,6 +66,8 @@ def make_font(path,variable=False):
 @unittest.skipIf(FontBuilder is None,'python-fonttools is required')
 class FontToolsTests(unittest.TestCase):
     def setUp(self):
+        scanner = patch('orbits.security.configured_scan', return_value='Not scanned')
+        scanner.start(); self.addCleanup(scanner.stop)
         self.tmp=tempfile.TemporaryDirectory(prefix='orbits-test-fonttools-');self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.font=make_font(self.root/'fixture.ttf')
 
@@ -84,7 +86,7 @@ class FontToolsTests(unittest.TestCase):
     def test_local_zip_is_flattened_and_install_scripts_ignored(self):
         archive=self.root/'fonts.zip'
         with zipfile.ZipFile(archive,'w') as z:
-            z.write(self.font,'../../outside.ttf');z.write(self.font,'nested/fixture.ttf')
+            z.write(self.font,'nested/first.ttf');z.write(self.font,'nested/fixture.ttf')
             z.writestr('install.sh','touch /tmp/do-not-execute')
             z.writestr('LICENSE.txt','Local license')
         dest=self.root/'prepared'
@@ -226,6 +228,15 @@ class GalleryTests(unittest.TestCase):
 
 class LooksStorageTests(unittest.TestCase):
     def setUp(self):
+        def copy_image(source, destination, **kwargs):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            out = Path(destination)/'frame-000.png'
+            shutil.copyfile(source, out)
+            return [out]
+        decoder = patch('orbits.image_safety.normalize_images', side_effect=copy_image)
+        decoder.start(); self.addCleanup(decoder.stop)
+        scanner = patch('orbits.security.configured_scan', return_value='Not scanned')
+        scanner.start(); self.addCleanup(scanner.stop)
         self.tmp=tempfile.TemporaryDirectory(prefix='orbits-test-look-new-');self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         class Object:
@@ -346,6 +357,8 @@ class LooksStorageTests(unittest.TestCase):
 @unittest.skipIf(FontBuilder is None,'python-fonttools is required')
 class FontLibraryTests(unittest.TestCase):
     def setUp(self):
+        scanner = patch('orbits.security.configured_scan', return_value='Not scanned')
+        scanner.start(); self.addCleanup(scanner.stop)
         self.tmp=tempfile.TemporaryDirectory(prefix='orbits-test-font-library-');self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         for folder in ('data','cache','config'):(self.root/folder).mkdir()
@@ -444,3 +457,19 @@ class ScreenshotTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+# Unit suites execute trusted worker code in child processes; live isolation has
+# a separate required integration profile and never changes production behavior.
+def setUpModule():
+    from tests.parser_fixtures import run_worker
+    global _parser_fixture, _publisher_fixture
+    _parser_fixture = patch('orbits.parser_sandbox.run', side_effect=run_worker)
+    _parser_fixture.start()
+    _publisher_fixture = patch('orbits.publishers.verify_local', return_value='Publisher unverified')
+    _publisher_fixture.start()
+
+
+def tearDownModule():
+    _parser_fixture.stop()
+    _publisher_fixture.stop()

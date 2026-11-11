@@ -102,7 +102,8 @@ class LookRoundTripTests(unittest.TestCase):
     def test_export_then_import_keeps_wallpaper_and_settings(self):
         tmp = Path(tempfile.mkdtemp(prefix="orbits-test-look-"))
         wp = tmp / "wall.png"
-        wp.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        from PIL import Image
+        Image.new("RGB", (16, 16), "#336699").save(wp)
         look = {"format": 1, "name": "Round Trip", "created": 1, "interface": {"icon-theme": "Adwaita"},
                 "wallpaper": {"light": str(wp), "dark": None, "options": "zoom"}, "lockscreen": None,
                 "shell_theme": "", "libadwaita_theme": None,

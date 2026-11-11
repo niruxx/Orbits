@@ -1,5 +1,7 @@
 """Installed wallpapers."""
 from orbits.i18n import _ as tr
+from pathlib import Path
+from orbits import net
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from orbits.config import settings
@@ -203,12 +205,47 @@ class LibraryPage(Adw.Bin):
         dlg.open_multiple(self.window, None, done)
 
     def _import_paths(self, paths):
-        try:
-            n = self.lib.import_files(paths)
-        except Exception as error:
-            self.window.toast(tr('Import failed: {value0}').format(value0=error), timeout=6)
-            return
-        self.window.toast(f"Imported {n} wallpaper{'s' if n != 1 else ''}" if n else "No supported images found")
+        def done(n, error):
+            if error:
+                self.window.toast(tr('Import failed: {value0}').format(value0=error), timeout=6)
+            else:
+                self.window.toast(f"Imported {n} wallpaper{'s' if n != 1 else ''}" if n else "No supported images found")
+        # Decoding/scanning happens off the UI thread; library publication stays on it.
+        import tempfile
+        from contextlib import ExitStack
+        from orbits.image_safety import normalize_images
+        stack = ExitStack()
+        def work():
+            prepared = []
+            try:
+                for value in paths:
+                    if Path(value).suffix.lower() not in IMAGE_EXTS:
+                        continue
+                    directory = stack.enter_context(tempfile.TemporaryDirectory(prefix='orbits-import-ui-'))
+                    count = 200 if Path(value).suffix.lower() in ('.heic', '.heif') else 1
+                    frames = normalize_images(value, directory, frames=count, publisher=True)
+                    prepared.append((Path(value).stem, frames))
+                return prepared
+            except Exception:
+                stack.close()
+                raise
+        def publish(prepared, error):
+            try:
+                if error:
+                    done(None, error)
+                    return
+                for title, frames in prepared:
+                    if len(frames) > 1:
+                        self.lib.create_slideshow([(i * 86400 // len(frames), image)
+                                                   for i, image in enumerate(frames)], title)
+                    else:
+                        self.lib.add_generated(frames[0], title)
+                done(len(prepared), None)
+            except Exception as failure:
+                done(None, failure)
+            finally:
+                stack.close()
+        net.run_async(work, publish)
 
     def _on_drop(self, _t, value, _x, _y):
         self._import_paths([f.get_path() for f in value.get_files() if f.get_path()])

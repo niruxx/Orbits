@@ -209,6 +209,8 @@ class BootloaderTests(HelperTestCase):
         Path(H.GRUB_DEFAULT).write_text('GRUB_TIMEOUT=5\nGRUB_TERMINAL_OUTPUT="console"\n#GRUB_THEME="/path/to/gfxtheme"\n')
         self.src = self.tmp / "src"
         self.src.mkdir()
+        from PIL import Image
+        Image.new("RGB", (16, 16), "red").save(self.src/"bg.png")
         (self.src / "theme.conf").write_text("banner bg.png\n")
         (self.src / "theme.txt").write_text("title-text: \"\"\n")
 

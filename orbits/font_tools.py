@@ -15,47 +15,9 @@ MAX_FONT = 128 << 20
 MAX_ARCHIVE = 512 << 20
 
 
-def font_class():
-    try:
-        from fontTools.ttLib import TTFont
-    except ImportError as error:
-        raise RuntimeError("Install python-fonttools for font import and inspection") from error
-    return TTFont
-
-
 def inspect_font(path, face=0):
-    path = Path(path)
-    if path.stat().st_size > MAX_FONT:
-        raise ValueError("Font file exceeds 128 MiB")
-    TTFont = font_class()
-    try:
-        with path.open("rb") as stream, TTFont(stream, fontNumber=face, lazy=True) as font:
-            def name(number):
-                table = font.get("name")
-                return (table.getDebugName(number) or "")[:12000] if table else ""
-            family = name(16) or name(1) or path.stem
-            cmap = font.getBestCmap() or {}
-            features = set()
-            for tag in ("GSUB", "GPOS"):
-                if tag in font:
-                    listing = getattr(font[tag].table, "FeatureList", None)
-                    if listing:
-                        features.update(record.FeatureTag for record in listing.FeatureRecord)
-            axes = []
-            if "fvar" in font:
-                for axis in font["fvar"].axes:
-                    limits = (axis.minValue, axis.defaultValue, axis.maxValue)
-                    if not all(math.isfinite(v) for v in limits) or not limits[0] <= limits[1] <= limits[2]:
-                        continue
-                    axes.append({"tag":axis.axisTag,"name":name(axis.axisNameID) or axis.axisTag,
-                                 "min":axis.minValue,"default":axis.defaultValue,"max":axis.maxValue})
-            return {"family":family[:200],"style":name(17) or name(2),"full_name":name(4),
-                    "version":name(5),"designer":name(9),"license":name(13),"license_url":name(14),
-                    "glyph_count":len(font.getGlyphOrder()),"codepoints":sorted(c for c in cmap if 0 <= c <= 0x10ffff),
-                    "features":sorted(features),"axes":axes,"file":str(path),"face":face,
-                    "monospace":bool(getattr(font.get("post"), "isFixedPitch", 0))}
-    except Exception as error:
-        raise ValueError(f"Could not read font {path.name}: {error}") from error
+    from orbits.font_safety import inspect_font as inspect
+    return inspect(path, face)
 
 
 def glyph_page(codepoints, query="", page=0, page_size=128):
@@ -71,11 +33,31 @@ def glyph_page(codepoints, query="", page=0, page_size=128):
 
 
 def prepare_local(paths, destination):
+    from contextlib import ExitStack
+    from orbits.security import checked_local_file
+    with ExitStack() as stack:
+        captured = []
+        for value in paths:
+            source = Path(value)
+            snapshot = stack.enter_context(checked_local_file(source, publisher=True))
+            captured.append(snapshot)
+            if source.suffix.lower() in FONT_EXTS:
+                for pattern in ('OFL*', 'LICENSE*', 'COPYING*'):
+                    for license_ in source.parent.glob(pattern):
+                        if license_.is_file() and not license_.is_symlink():
+                            checked = stack.enter_context(checked_local_file(license_, archive=False))
+                            shutil.copyfile(checked, snapshot.parent/license_.name)
+        return _prepare_local(captured, destination)
+
+
+def _prepare_local(paths, destination):
     """Flatten ZIP font assets, validate real font tables and preserve adjacent licenses."""
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     candidates = []
     total = 0
+    from orbits.safe_archive import Budget, extract
+    budget = Budget()
     def copy(stream, name, size):
         nonlocal total
         total += size
@@ -91,23 +73,19 @@ def prepare_local(paths, destination):
             target = destination / f"{Path(name).stem}-{index}{Path(name).suffix}"
             index += 1
         with target.open("wb") as output:
-            shutil.copyfileobj(stream, output)
+            budget.copy(stream, output, size, limit=MAX_FONT)
         if suffix in FONT_EXTS:
             candidates.append(target)
     for source in map(Path, paths):
         if not source.is_file() or source.is_symlink():
             raise ValueError(f"Select a regular font or ZIP file: {source.name}")
-        if source.suffix.lower() == ".zip":
-            with zipfile.ZipFile(source) as archive:
-                if len(archive.infolist()) > 10000:
-                    raise ValueError("Font archive contains too many entries")
-                for item in archive.infolist():
-                    if item.is_dir():
-                        continue
-                    if Path(item.filename).suffix.lower() not in FONT_EXTS and not Path(item.filename).name.upper().startswith(("OFL","LICENSE","COPYING")):
-                        continue
-                    with archive.open(item) as stream:
-                        copy(stream, item.filename, item.file_size)
+        if source.suffix.lower() == '.zip':
+            with tempfile.TemporaryDirectory(prefix='orbits-local-font-unpack-') as temporary:
+                extract(source, temporary, wanted=lambda name: Path(name).suffix.lower() in FONT_EXTS or Path(name).name.upper().startswith(('OFL', 'LICENSE', 'COPYING')))
+                for item in Path(temporary).rglob('*'):
+                    if item.is_file():
+                        with item.open('rb') as stream:
+                            copy(stream, item.name, item.stat().st_size)
         elif source.suffix.lower() in FONT_EXTS:
             with source.open("rb") as stream:
                 copy(stream, source.name, source.stat().st_size)
@@ -120,6 +98,9 @@ def prepare_local(paths, destination):
             raise ValueError(f"Unsupported font import: {source.name}")
     if not candidates:
         raise ValueError("No supported fonts found")
+    from orbits.asset_validation import validate_font
+    for path in candidates:
+        validate_font(path)
     metadata = [inspect_font(path) for path in candidates]
     families = list(dict.fromkeys(m["family"] for m in metadata))
     digest = hashlib.sha256()
