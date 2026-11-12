@@ -63,6 +63,8 @@ class OrbitsApplication(Adw.Application):
         from orbits import downloads
         if downloads._manager is not None:
             downloads._manager.close()
+        from orbits.clamav import close as close_scanner
+        close_scanner()
         from orbits.undo import clear
         self._undo_unsubscribe()
         clear()

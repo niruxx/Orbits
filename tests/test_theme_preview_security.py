@@ -55,7 +55,7 @@ class ThemeCardBoundaryTests(unittest.TestCase):
         self.load = Mock()
         self.themes = types.SimpleNamespace(preview_image=Mock(return_value=Path('/theme/thumbnail.png')))
         self.jobs = []
-        net = types.SimpleNamespace(run_async=lambda work, done:self.jobs.append((work, done)))
+        net = types.SimpleNamespace(run_preview=lambda work, done:self.jobs.append((work, done)))
         gtk = types.SimpleNamespace(Box=Mock(), Picture=Mock(), Label=Mock(),
                                     ContentFit=Mock(), Align=Mock())
         # Only a Box base class is needed to load the module; widget constructors are spies.
@@ -101,7 +101,7 @@ class ThemeCardBoundaryTests(unittest.TestCase):
 class GdmBackgroundBoundaryTests(unittest.TestCase):
     def test_native_loader_receives_only_the_protected_decoder_output(self):
         jobs = []
-        net = types.SimpleNamespace(run_async=lambda work, done:jobs.append((work, done)))
+        net = types.SimpleNamespace(run_preview=lambda work, done:jobs.append((work, done)))
         repository = types.SimpleNamespace(Gtk=types.SimpleNamespace(Widget=object, Overlay=object),
             Gdk=Mock(), GdkPixbuf=Mock(), Gio=Mock(), GLib=Mock(), Graphene=Mock(), Gsk=Mock(), Pango=Mock())
         stubs = {'gi.repository':repository, 'orbits.net':net,

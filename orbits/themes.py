@@ -1,5 +1,5 @@
 """GTK, GNOME Shell, icon, cursor and Plymouth themes: discovery (gnome-look.org), install, apply, remove."""
-from orbits.undo import reversible, EntryState
+from orbits.undo import reversible
 
 import json
 import os
@@ -347,6 +347,42 @@ def apply(kind_id, name):
     else:
         raise ValueError(kind_id)
     Gio.Settings.sync()
+
+
+class _ShellThemeState:
+    """The extension schema may be local rather than in the global schema source."""
+    def __init__(self):
+        self.settings=_user_theme_settings()
+        self.value=self.settings.get_value('name') if self.settings is not None else None
+    def restore(self):
+        if self.settings is not None:self.settings.set_value('name',self.value)
+    def cleanup(self):
+        pass
+
+
+@reversible("Default theme restored", extra=lambda kind_id:_ShellThemeState() if kind_id=='shell' else None)
+def restore_default(kind_id):
+    """Clear the selected user theme setting and Orbits' GTK4 link override."""
+    keys={'gtk':'gtk-theme','icons':'icon-theme','cursors':'cursor-theme'}
+    if kind_id=='shell':
+        from orbits.desktop import detect
+        if detect()!='gnome':
+            raise RuntimeError('Shell themes require a GNOME Shell session')
+        target=_user_theme_settings()
+        key='name'
+    elif kind_id in keys:
+        target=_iface()
+        key=keys[kind_id]
+    else:
+        raise ValueError('Default theme restoration is not supported for this theme type')
+    if target is not None:
+        if not target.is_writable(key):
+            raise RuntimeError('This theme setting is locked by the system administrator')
+        target.reset(key)
+    if kind_id=='gtk' and LIBADWAITA_MARKER.exists():
+        remove_libadwaita()
+    Gio.Settings.sync()
+    return current(kind_id)
 
 
 # Legacy GTK rc files are independent of the current GTK3/GTK4 theme.
@@ -729,7 +765,9 @@ class ThemeManager(GObject.Object):
             from orbits.asset_validation import validate_theme_tree
             for source, _name in themes:
                 validate_theme_tree(source, kind.id)
-            marker = {"key": item.key, "title": item.title, "preview": item.preview_url or item.thumb_url,
+            from orbits.theme_cleanup import cache_identity
+            cache = cache_identity(item, download, self.items.get(item.key))
+            marker = {"cache": cache, "key": item.key, "title": item.title, "preview": item.preview_url or item.thumb_url,
                       "page": item.page_url, "installed_at": time.time()}
             if kind.id == "plymouth":
                 staged = []
@@ -744,7 +782,7 @@ class ThemeManager(GObject.Object):
                     record_tree(dest)
                     staged.append((str(dest), name))
                 return {"key": item.key, "title": item.title, "names": [n for _, n in staged], "staged": staged,
-                        "preview": marker["preview"], "download": download.name, "remote_changed": item.updated,
+                        "preview": marker["preview"], "cache": cache, "download": download.name, "remote_changed": item.updated,
                         "installed_at": time.time()}
 
             kind.user_dir.mkdir(parents=True, exist_ok=True)
@@ -766,7 +804,7 @@ class ThemeManager(GObject.Object):
                     record_tree(tree)
                     publish_tree(tree, dest)
                 names.append(name)
-        return {"key": item.key, "title": item.title, "names": names, "preview": marker["preview"],
+        return {"key": item.key, "title": item.title, "names": names, "preview": marker["preview"], "cache": cache,
                 "download": download.name, "remote_changed": item.updated, "installed_at": time.time()}
 
     def record_system_install(self, entry):
@@ -777,39 +815,81 @@ class ThemeManager(GObject.Object):
         self.emit("changed")
 
     # ---- uninstall ---------------------------------------------------------
-    @reversible("Theme uninstalled", extra=lambda self, name: EntryState(self,
-        [key for key, entry in self.items.items() if name in entry.get("names", [])],
-        [base/name for base in self.kind.search_dirs if str(base).startswith(str(HOME)) and (base/name).exists()]))
+    def forget(self, name):
+        """Forget a successfully removed variant; purge caches after its last variant goes."""
+        from orbits.theme_cleanup import cleanup
+        removed=[]
+        for key,entry in list(self.items.items()):
+            if name in entry.get('names',[]):
+                entry['names']=[variant for variant in entry['names'] if variant != name]
+                if not entry['names']:
+                    removed.append(entry)
+                    del self.items[key]
+        self._save()
+        for entry in removed:cleanup(entry)
+        self.emit('changed')
+
     def uninstall_user(self, name):
-        """Remove a theme from the user's folders (any user theme, Orbits-installed or not)."""
+        """Permanently remove one user theme and clean its active settings and owned cache."""
         kind = self.kind
+        if not isinstance(name,str) or not NAME_RE.fullmatch(name):
+            raise RuntimeError('Invalid theme name')
         for base in kind.search_dirs:
-            d = base / name
-            if d.is_dir() and str(d).startswith(str(HOME)) and kind.matches(d):
-                shutil.rmtree(d)
+            directory=base/name
+            if (base==kind.user_dir or base.is_relative_to(HOME)) and directory.is_dir() and not directory.is_symlink() and kind.matches(directory):
                 break
         else:
             raise RuntimeError(f"{name} isn't a user-installed {kind.noun}")
-        if current(kind.id) == name and kind.id != "plymouth":
-            apply(kind.id, kind.default)
+        if any(key in self.busy for key,entry in self.items.items() if name in entry.get('names',[])):
+            raise RuntimeError('Wait for this theme installation to finish before uninstalling')
+        if current(kind.id)==name and kind.id!='plymouth':
+            getattr(apply, "__wrapped__", apply)(kind.id,kind.default)
+        if kind.id=='gtk' and libadwaita_state()[0]==name:
+            getattr(remove_libadwaita, "__wrapped__", remove_libadwaita)()
+        shutil.rmtree(directory)
+        if not any(theme.name == name for theme in installed(kind.id)):
+            self.forget(name)
         self.refresh()
 
-    @reversible("Theme uninstalled", extra=lambda self, key: EntryState(self, [key],
-        [self.kind.user_dir/name for name in self.items.get(key, {}).get("names", [])
-         if self.kind.user_dir is not None and (self.kind.user_dir/name).exists()]))
-    def uninstall(self, key):
-        """Used by the store detail dialog: remove everything an item installed (user kinds)."""
-        e = self.items.get(key)
-        if not e:
+    def uninstall(self, key, callback=None):
+        """Permanently remove user variants, or authenticate system-only theme removal."""
+        entry=self.items.get(key)
+        if not entry:
+            if callback:callback(True,'')
             return
-        for name in e["names"]:
-            try:
-                self.uninstall_user(name)
-            except (RuntimeError, OSError):
-                pass
-        self.items.pop(key, None)
-        self._save()
-        self.emit("changed")
+        if key in self.busy:
+            error='Wait for this theme installation to finish before uninstalling'
+            if callback:callback(False,error)
+            else:raise RuntimeError(error)
+            return
+        if self.kind.user_dir is None:
+            from orbits.privileged import run_helper
+            names=list(entry['names'])
+            def removed(ok=True,message=''):
+                if not ok or not names:
+                    if callback:callback(ok,message)
+                    elif not ok:
+                        app=Gio.Application.get_default()
+                        if app:app.notify_error(message)
+                    return
+                name=names.pop(0)
+                def done(success,text):
+                    if success:
+                        try:self.forget(name)
+                        except (OSError,RuntimeError) as error:
+                            removed(False,str(error))
+                            return
+                    removed(success,text)
+                run_helper(['theme-remove',self.kind.system_base,name],done)
+            removed()
+            return
+        try:
+            for name in list(entry['names']):self.uninstall_user(name)
+        except (OSError,RuntimeError) as error:
+            if callback:callback(False,str(error))
+            else:raise
+            return
+        if callback:callback(True,'')
 
 
 _managers = {}

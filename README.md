@@ -90,11 +90,27 @@ installed items. It pauses active transfers. Cached previews and completed downl
 uncached requests explain that a connection is needed. Network failures also fall back to cached
 catalogue responses when available. Authentication errors are reported rather than hidden by cache.
 
-Apply and uninstall operations offer **Undo**. Deleted user files are retained in temporary snapshots
-for the session; up to twenty recent records are kept. Privileged changes use up to ten root-owned
-snapshots in `/var/lib/orbits/undo` and require authentication again to undo. Background Look applies
-expose Undo through a desktop notification for thirty seconds. Undo does not fetch deleted files
-from a remote store. Settings changed after an operation may be replaced when that operation is undone.
+Appearance applies and wallpaper/font uninstall operations offer **Undo**. Deleted user files are
+retained in temporary snapshots for the session; up to twenty recent records are kept. Privileged
+changes use up to ten root-owned snapshots in `/var/lib/orbits/undo` and require authentication
+again to undo. Background Look applies expose Undo through a desktop notification for thirty
+seconds. Undo does not fetch deleted files from a remote store. Settings changed after an
+operation may be replaced when that operation is undone.
+
+The GTK, Shell, Icons and Cursors pages offer **Restore Default Theme**. This restores the
+configured desktop default for that theme type. GTK reset also removes Orbits' libadwaita link
+override, restoring any pre-existing configuration. Installed themes remain available; restart
+open applications to refresh their styling.
+
+On **Bootloader → Installed**, choose **rEFInd Default Theme → Use Default** or
+**Restore Default Theme** to return to rEFInd's built-in appearance. Authentication is required.
+Installed themes and unrelated boot entries are retained. If an included configuration mixes
+appearance with boot entries or other settings, Orbits asks for manual review instead of disabling it.
+
+Theme uninstall is permanent: it removes the selected installed theme files, tracked unshared
+download/preview caches, matching staging files and retained theme Undo copies. Shared caches
+remain until the last installed variant is removed. Older archive caches without ownership
+records can be cleared through **Downloads → Clear Finished**.
 
 Open **Quick Switcher** from the menu, the launcher action, **Ctrl+Shift+K**, or
 `orbits --quick-switcher`. Its small window applies Looks, toggles wallpaper rotation and advances

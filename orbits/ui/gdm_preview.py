@@ -200,7 +200,7 @@ class GdmPreview(Gtk.Overlay):
             return Gdk.Texture.new_for_pixbuf(pb)
 
         if uri:
-            net.run_async(work, lambda tex, err: tex and (setattr(self, "lock_texture", tex), self.refresh()))
+            net.run_preview(work, lambda tex, err: tex and (setattr(self, "lock_texture", tex), self.refresh()))
 
     def _ensure_bg_texture(self):
         variant = "light" if self.model.get("color_scheme") == "prefer-light" else "dark"
@@ -231,7 +231,7 @@ class GdmPreview(Gtk.Overlay):
                 self.bg_texture = tex
                 self.refresh()
 
-        net.run_async(work, done)
+        net.run_preview(work, done)
 
     # ---------------------------------------------------------------- render
     def _tick(self):

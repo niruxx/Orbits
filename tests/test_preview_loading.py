@@ -11,8 +11,8 @@ import orbits
 class PreviewLoadingTests(unittest.TestCase):
     def setUp(self):
         self.jobs = []
-        net = types.SimpleNamespace(run_async=lambda work, done: self.jobs.append((work, done)),
-                                    cached_texture=lambda url: url)
+        net = types.SimpleNamespace(run_preview=lambda work, done: self.jobs.append((work, done)),
+                                    cached_texture=lambda url, size=640: url)
         repository = types.SimpleNamespace(
             Gtk=types.SimpleNamespace(Widget=object, Overlay=object, Picture=object),
             Gdk=Mock(), GdkPixbuf=Mock(), Graphene=Mock(), Gsk=Mock())
@@ -92,6 +92,20 @@ class PreviewLoadingTests(unittest.TestCase):
         self.picture.set_paintable.assert_called_once_with('new logo')
         self.widgets.load_optional_texture_into(self.picture, '/second.png')
         self.assertEqual(len(self.jobs), 2)
+
+    def test_rebinding_cancels_queued_preview_futures(self):
+        from concurrent.futures import Future
+        futures = []
+        def schedule(work, done):
+            future = Future()
+            futures.append(future)
+            return future
+        self.widgets.net.run_preview = schedule
+        self.load()
+        self.assertEqual(len(futures), 2)
+        self.widgets.load_texture_into(self.picture, url='replacement')
+        self.assertTrue(all(future.cancelled() for future in futures[:2]))
+        self.assertFalse(futures[2].cancelled())
 
     def test_both_failures_mark_image_failed(self):
         self.load()

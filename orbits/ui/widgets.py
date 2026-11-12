@@ -5,6 +5,7 @@ from pathlib import Path
 from gi.repository import Gdk, GdkPixbuf, Graphene, Gsk, Gtk
 
 from orbits import net
+from orbits.preview_jobs import cancel_pending, track
 from orbits.config import THUMB_CACHE
 
 
@@ -60,6 +61,7 @@ class CoverPicture(Gtk.Widget):
 def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, size=640,
                       fallback_url=None):
     """Load an image asynchronously, optionally showing a thumbnail while it loads."""
+    cancel_pending(picture)
     request = object()
     picture._texture_request = request
     state = {"quality": -1, "pending": 1 + bool(fallback_url and fallback_url != url)}
@@ -68,7 +70,7 @@ def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, s
         def work():
             if picture._texture_request is not request:
                 return None
-            return net.cached_texture(image_url) if image_url else local_thumbnail(path, size)
+            return net.cached_texture(image_url, size=size) if image_url else local_thumbnail(path, size)
 
         def done(tex, err):
             if picture._texture_request is not request:
@@ -84,7 +86,7 @@ def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, s
                 picture.set_paintable(None)
                 picture.add_css_class("load-failed")
 
-        net.run_async(work, done)
+        track(picture, net.run_preview(work, done))
 
     if spinner:
         spinner.set_visible(True)
@@ -97,6 +99,7 @@ def load_optional_texture_into(picture, path, size=640):
     """Replace or clear a local preview, invalidating any earlier asynchronous load."""
     if getattr(picture, '_optional_texture_path', object()) == path:
         return
+    cancel_pending(picture)
     picture._optional_texture_path = path
     picture._texture_request = None
     picture.set_paintable(None)

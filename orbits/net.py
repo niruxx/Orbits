@@ -17,19 +17,29 @@ from orbits.offline import OfflineError, enabled as offline_enabled, with_status
 
 USER_AGENT = f"Orbits/{VERSION} (GTK wallpaper manager; +https://github.com/niruxx/Orbits)"
 _pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="orbits")
+# Slow thumbnails must never occupy the workers that start installs/catalogue requests.
+_preview_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="orbits-preview")
 
 
 def run_async(func, callback=None, *args):
-    """Run func(*args) in a worker; call callback(result, error) on the main loop."""
+    """Run foreground work without queuing it behind thumbnail decoding."""
+    return _submit(_pool, func, callback, args)
 
+
+def run_preview(func, callback=None, *args):
+    """Run lower-priority preview work in its own bounded worker pool."""
+    return _submit(_preview_pool, func, callback, args)
+
+
+def _submit(pool, func, callback, args):
     def done(fut):
-        if callback is None:
+        if callback is None or fut.cancelled():
             return
         err = fut.exception()
         res = None if err else fut.result()
         GLib.idle_add(lambda: (callback(res, err), False)[1])
 
-    fut = _pool.submit(func, *args)
+    fut = pool.submit(func, *args)
     fut.add_done_callback(done)
     return fut
 
@@ -110,9 +120,11 @@ def download(url, dest, progress=None, chunk=1 << 16, checksum="", algorithm="md
     return manager.wait(manager.submit(url, dest, progress, checksum, algorithm))
 
 
-def cached_texture(url):
+def cached_texture(url, size=640):
     """Bound preview downloads; scan and decode even cached originals in isolation."""
     from orbits.image_safety import normalize_images
+    if type(size) is not int or not 1 <= size <= 4096:
+        raise ValueError("Invalid preview size")
     if urllib.parse.urlparse(url).scheme != 'https':
         raise RuntimeError('Remote previews require an HTTPS URL')
     path = THUMB_CACHE / hashlib.sha1(url.encode()).hexdigest()
@@ -128,5 +140,5 @@ def cached_texture(url):
     if path.stat().st_size > 32 * 1024**2:
         raise RuntimeError('Cached preview exceeds the 32 MiB limit')
     with tempfile.TemporaryDirectory(prefix='orbits-preview-') as temporary:
-        image = normalize_images(path, temporary, size=2048)[0]
+        image = normalize_images(path, temporary, size=size)[0]
         return Gdk.Texture.new_from_bytes(GLib.Bytes.new(image.read_bytes()))

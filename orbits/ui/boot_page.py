@@ -38,9 +38,9 @@ class LoaderView(Adw.Bin):
                        margin_top=12, margin_bottom=32)
         body.append(page.detected_group(loader, chooser))
         self.themes_group = Adw.PreferencesGroup(title=tr('{value0} Themes').format(value0=loader.name))
-        reset = Gtk.Button(label=tr("Use Default"), css_classes=["flat"], valign=Gtk.Align.CENTER)
+        reset = Gtk.Button(label=tr("Restore Default Theme"), valign=Gtk.Align.CENTER)
         reset.connect("clicked", lambda *_: self.reset())
-        self.themes_group.set_header_suffix(reset)
+        header.pack_end(reset)
         body.append(self.themes_group)
         self._rows = []
         installed = Adw.ToolbarView()
@@ -55,7 +55,7 @@ class LoaderView(Adw.Bin):
             apply_icon="object-select-symbolic", on_apply=lambda e: self.apply(e["names"][0]),
             describe=lambda e: f"Installed “{', '.join(e['names'])}” for {loader.name}",
             title_widget=Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE),
-            wallpaper_extras=False)
+            wallpaper_extras=False, on_install_error=self._report_error)
         self.stack.add_titled_with_icon(self.browse, "discover", tr("Discover"), "web-browser-symbolic")
         self.stack.connect("notify::visible-child-name",
                            lambda *_: self.stack.get_visible_child_name() == "discover" and self.browse.on_shown())
@@ -82,6 +82,14 @@ class LoaderView(Adw.Bin):
                                               "them; themes installed with Orbits are listed below either way."))
         else:
             self.themes_group.set_description(tr('{value0} installed in {value1} · current: {value2}').format(value0=len(names), value1=system.get('themes_dir', ''), value2=current or 'default'))
+        if self.loader.id == 'refind':
+            default = Adw.ActionRow(title=tr("rEFInd Default Theme"),
+                subtitle=tr("Built-in appearance. Installed themes stay available."))
+            use_default = Gtk.Button(label=tr("Use Default"), valign=Gtk.Align.CENTER)
+            use_default.connect('clicked', lambda *_: self.reset())
+            default.add_suffix(use_default)
+            self.themes_group.add(default)
+            self._rows.append(default)
         if not names:
             row = Adw.ActionRow(title=tr("No themes yet"), subtitle=tr("Find one in the Discover tab"))
             self.themes_group.add(row)
@@ -98,11 +106,11 @@ class LoaderView(Adw.Bin):
                 row.add_prefix(pic)
             else:
                 row.add_prefix(Gtk.Image(icon_name="drive-harddisk-symbolic", pixel_size=32))
-            if name != current:
-                b = Gtk.Button(label=tr("Apply"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+            if name != current or self.loader.id == "refind":
+                b = Gtk.Button(label=tr("Reapply") if name == current else tr("Apply"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
                 b.connect("clicked", lambda _b, n=name: self.apply(n))
                 row.add_suffix(b)
-            else:
+            if name == current:
                 row.add_suffix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["accent"]))
             origin = source_url(e or {}) or source_url(info.get("metadata", {}))
             if origin:
@@ -122,6 +130,22 @@ class LoaderView(Adw.Bin):
     def _busy(self, text):
         self.banner.set_title(text or "")
         self.banner.set_revealed(bool(text))
+
+    def _report_error(self, message):
+        message = str(message or tr("Boot theme operation failed"))
+        if any(token in message.lower() for token in ('read-only', 'read only', 'erofs')):
+            dialog = Adw.AlertDialog(
+                heading=tr("Boot Partition Is Read-Only"),
+                body=tr("The filesystem containing /boot or your EFI system partition is mounted read-only. "
+                        "Orbits could not complete the boot theme change. "
+                        "Check that the correct partition is mounted writable, then try again.")
+                     + "\n\n" + tr("Reason: {reason}").format(reason=message))
+            dialog.add_response("close", tr("Close"))
+            dialog.set_default_response("close")
+            dialog.set_close_response("close")
+            dialog.present(self.window)
+        else:
+            self.window.toast(message, timeout=6)
 
     def install_file(self):
         from orbits.sources.base import Download, Item
@@ -147,7 +171,10 @@ class LoaderView(Adw.Bin):
 
             def done(entry, error):
                 self._busy(None)
-                self.window.toast(str(error) if error else f"Installed {', '.join(entry['names'])}", timeout=6)
+                if error:
+                    self._report_error(error)
+                else:
+                    self.window.toast(f"Installed {', '.join(entry['names'])}", timeout=6)
 
             self.manager.install(item, Download(path.name, path.as_uri()), done)
 
@@ -163,7 +190,10 @@ class LoaderView(Adw.Bin):
 
         def done(ok, msg):
             self._busy(None)
-            self.window.toast(f"{self.loader.name} will use “{name}” next boot" if ok else msg, timeout=6)
+            if ok:
+                self.window.toast(f"{self.loader.name} will use “{name}” next boot", timeout=6)
+            else:
+                self._report_error(msg)
             if ok:
                 self.manager.scan(lambda *_: None)
 
@@ -171,30 +201,39 @@ class LoaderView(Adw.Bin):
 
     def reset(self):
         dlg = Adw.AlertDialog(heading=tr("Restore {value0}'s Default Look?").format(value0=self.loader.name),
-                              body=tr("Removes the theme Orbits set. Installed themes stay available."))
+                              body=(tr("Restores rEFInd’s built-in appearance by disabling custom theme includes and appearance overrides. Boot entries and installed themes are kept.")
+                                    if self.loader.id == "refind" else tr("Removes the theme Orbits set. Installed themes stay available.")))
         dlg.add_response("cancel", tr("Cancel"))
         dlg.add_response("reset", tr("Use Default"))
         dlg.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
 
         def go():
             self._busy("Restoring default…")
-            run_helper(["boot-theme-reset", self.loader.id],
-                       lambda ok, msg: (self._busy(None), self.window.toast("Default look restored" if ok else msg),
+            run_helper(["boot-theme-default" if self.loader.id == "refind" else "boot-theme-reset", self.loader.id],
+                       lambda ok, msg: (self._busy(None), self.window.toast("Default look restored") if ok else self._report_error(msg),
                                         ok and self.manager.scan(lambda *_: None)))
 
         dlg.connect("response", lambda _d, r: r == "reset" and go())
         dlg.present(self.window)
 
     def remove(self, name):
-        dlg = Adw.AlertDialog(heading=tr('Remove “{value0}”?').format(value0=name), body=tr("If it's the current theme, the default is restored."))
+        dlg = Adw.AlertDialog(heading=tr('Remove “{value0}”?').format(value0=name), body=tr("Permanently removes this theme and its unshared cache data. If active, the default is restored. This cannot be undone."))
         dlg.add_response("cancel", tr("Cancel"))
         dlg.add_response("remove", tr("Remove"))
         dlg.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
 
         def go():
-            run_helper(["boot-theme-remove", self.loader.id, name],
-                       lambda ok, msg: (self.window.toast(f"Removed “{name}”" if ok else msg),
-                                        ok and self.manager.forget(name), ok and self.manager.scan(lambda *_: None)))
+            def removed(ok,message):
+                if not ok:
+                    self._report_error(message)
+                    return
+                try:self.manager.forget(name)
+                except (OSError,RuntimeError) as error:
+                    self._report_error(error)
+                    return
+                self.window.toast(f"Removed “{name}”")
+                self.manager.scan(lambda *_: None)
+            run_helper(["boot-theme-remove", self.loader.id, name],removed)
 
         dlg.connect("response", lambda _d, r: r == "remove" and go())
         dlg.present(self.window)

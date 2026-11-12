@@ -29,6 +29,19 @@ class ThemeActions:
         self.window.toast(tr('{value0} set to “{value1}”').format(value0=self.kind.noun.capitalize(), value1=theme.display))
 
 
+    def restore_default(self):
+        try:
+            themes.restore_default(self.kind.id)
+        except Exception as error:
+            self.window.toast(str(error),timeout=6)
+            return
+        self.reload()
+        message=tr("Default theme restored")
+        if self.kind.id=='gtk':
+            message=tr("Default theme restored. Restart open applications to see all changes.")
+        self.window.toast(message)
+
+
     def _sync_libadwaita(self, theme):
         if theme.path and (theme.path / "gtk-4.0" / "gtk.css").exists():
             self._check_before_link(theme)
@@ -180,12 +193,24 @@ class ThemeActions:
     def remove_system(self, theme):
         def go():
             def done(ok, msg):
-                self.window.toast(f"Removed “{theme.display}” for all users" if ok else msg, timeout=5)
+                if ok:
+                    try:
+                        remaining = any(t.name == theme.name for t in themes.installed(self.kind.id))
+                        if not remaining:
+                            if themes.current(self.kind.id)==theme.name and self.kind.id!='plymouth':
+                                getattr(themes.apply,'__wrapped__',themes.apply)(self.kind.id,self.kind.default)
+                            if self.kind.id=='gtk' and themes.libadwaita_state()[0]==theme.name:
+                                getattr(themes.remove_libadwaita,'__wrapped__',themes.remove_libadwaita)()
+                            self.manager.forget(theme.name)
+                    except (OSError,RuntimeError) as error:
+                        self.window.toast(str(error),timeout=6)
+                        return
+                self.window.toast(f"Removed “{theme.display}” for all users" if ok else msg,timeout=5)
                 self.manager.refresh()
 
             run_helper(["theme-remove", self.kind.system_base, theme.name], done)
 
-        self._confirm(tr('Remove “{value0}” for All Users?').format(value0=theme.display), tr("Requires your password."), tr("Remove"), go)
+        self._confirm(tr('Remove “{value0}” for All Users?').format(value0=theme.display), tr("Permanently removes the theme files and owned cache data. Requires your password."), tr("Remove"), go)
 
 
     def uninstall(self, theme):
@@ -196,7 +221,7 @@ class ThemeActions:
             except (RuntimeError, OSError) as e:
                 self.window.toast(str(e), timeout=5)
 
-        self._confirm(tr('Uninstall “{value0}”?').format(value0=theme.display), tr('Deletes {value0}').format(value0=theme.path), tr("Uninstall"), go)
+        self._confirm(tr('Uninstall “{value0}”?').format(value0=theme.display), tr('Permanently deletes {value0} and cache data no other installed theme uses. This cannot be undone.').format(value0=theme.path), tr("Uninstall"), go)
 
 
     def _confirm(self, heading, body, verb, cb):

@@ -133,3 +133,56 @@ msgstr "Variante {number}"
 
 msgid "No raster preview available"
 msgstr "No hay una vista previa de imagen rasterizada disponible"
+
+msgid "Reapply"
+msgstr "Volver a aplicar"
+
+msgid "Boot Partition Is Read-Only"
+msgstr "La partición de arranque es de solo lectura"
+
+msgid "The filesystem containing /boot or your EFI system partition is mounted read-only. Orbits could not complete the boot theme change. Check that the correct partition is mounted writable, then try again."
+msgstr "El sistema de archivos que contiene /boot o la partición del sistema EFI está montado en modo de solo lectura. Orbits no pudo completar el cambio del tema de arranque. Comprueba que la partición correcta esté montada con permiso de escritura y vuelve a intentarlo."
+
+#, python-brace-format
+msgid "Reason: {reason}"
+msgstr "Motivo: {reason}"
+
+msgid "Boot theme operation failed"
+msgstr "La operación del tema de arranque ha fallado"
+
+msgid "Permanently removes the theme files and owned cache data. Requires your password."
+msgstr "Elimina permanentemente los archivos del tema y sus datos de caché. Requiere tu contraseña."
+
+#, python-brace-format
+msgid "Permanently deletes {value0} and cache data no other installed theme uses. This cannot be undone."
+msgstr "Elimina permanentemente {value0} y los datos de caché que no usa ningún otro tema instalado. Esta acción no se puede deshacer."
+
+msgid "Permanently removes this theme and its unshared cache data. If active, the default is restored. This cannot be undone."
+msgstr "Elimina permanentemente este tema y sus datos de caché no compartidos. Si está activo, se restaura el predeterminado. Esta acción no se puede deshacer."
+
+msgid "Uninstall Theme?"
+msgstr "¿Desinstalar el tema?"
+
+msgid "Permanently removes the theme files and unshared cache data. This cannot be undone."
+msgstr "Elimina permanentemente los archivos del tema y los datos de caché no compartidos. Esta acción no se puede deshacer."
+
+msgid "Restore Default Theme"
+msgstr "Restaurar el tema predeterminado"
+
+msgid "Restore the desktop default without uninstalling themes"
+msgstr "Restaurar el tema predeterminado del escritorio sin desinstalar temas"
+
+msgid "Default theme restored"
+msgstr "Tema predeterminado restaurado"
+
+msgid "Default theme restored. Restart open applications to see all changes."
+msgstr "Tema predeterminado restaurado. Reinicia las aplicaciones abiertas para ver todos los cambios."
+
+msgid "rEFInd Default Theme"
+msgstr "Tema predeterminado de rEFInd"
+
+msgid "Built-in appearance. Installed themes stay available."
+msgstr "Apariencia integrada. Los temas instalados siguen disponibles."
+
+msgid "Restores rEFInd’s built-in appearance by disabling custom theme includes and appearance overrides. Boot entries and installed themes are kept."
+msgstr "Restaura la apariencia integrada de rEFInd desactivando las inclusiones de temas personalizados y las modificaciones de apariencia. Se conservan las entradas de arranque y los temas instalados."

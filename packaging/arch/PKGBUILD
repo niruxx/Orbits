@@ -2,14 +2,14 @@
 # Builds from the local source tree:  cd packaging/arch && makepkg -si
 pkgname=orbits
 pkgver=0.3.0
-pkgrel=3
+pkgrel=14
 pkgdesc="GTK4 manager for wallpapers, fonts, themes, app colors, desktop Looks and the GDM login screen"
 arch=('any')
 url="https://github.com/niruxx/Orbits"
 license=('GPL-3.0-or-later')
 depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'glib2' 'gdk-pixbuf2' 'pango'
          'bubblewrap' 'python-pillow' 'python-fonttools' 'fontconfig' 'polkit' 'dconf' 'gsettings-desktop-schemas')
-optdepends=('minisign: pinned publisher verification' 'xdg-desktop-portal: desktop screenshots for saved Looks'
+optdepends=('clamav: optional malware scanning and virus definition updates' 'minisign: pinned publisher verification' 'xdg-desktop-portal: desktop screenshots for saved Looks'
             'gtk3: Plymouth X11 renderer runtime'
             'python-pillow-heif: HEIC and multi-frame dynamic wallpaper import'
             'gdm: login screen customization'

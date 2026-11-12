@@ -160,7 +160,7 @@ class FontPreviewFaceTests(unittest.TestCase):
         render = Mock(return_value=b'png')
         repository = types.SimpleNamespace(Gdk=Mock(), GLib=types.SimpleNamespace(
             timeout_add=lambda _delay, callback:callback(), Bytes=Mock()))
-        net = types.SimpleNamespace(run_async=lambda work, done:jobs.append((work, done)))
+        net = types.SimpleNamespace(run_preview=lambda work, done:jobs.append((work, done)))
         with patch.dict('sys.modules', {'gi.repository':repository, 'orbits.net':net}), patch.object(orbits,'net',net,create=True):
             spec = importlib.util.spec_from_file_location('collection_preview',ROOT/'orbits/ui/font_preview.py')
             module = importlib.util.module_from_spec(spec)

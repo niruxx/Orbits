@@ -158,6 +158,11 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
   scan errors; download/archive limits; decoded raster wallpaper validation.
   Preferences has independent scanning and automatic definition-update switches,
   plus a manual update action using a private, unprivileged freshclam database.
+- [x] **Warm malware scanner:** keep an unprivileged ClamAV process on a private Unix socket
+  while Orbits is open, stream each file for a fresh scan, and restart when definitions change.
+  Scanner errors/detections block installation; startup unavailability uses the existing
+  fail-closed `clamscan` path. Recursive rescans still use `clamscan`. The private process exits
+  with Orbits, including parent-process death. The first scan still pays definition-load time.
 - [x] **Isolated image processing:** required bubblewrap decoding for wallpaper
   installation, remote/local previews, local wallpaper imports and Look images;
   reconstruct PNGs from bounded raw pixels, stripping original metadata. Local
@@ -171,7 +176,8 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
   Online discovery remains in each store's search.
 - [x] **A GNOME Shell search provider:** type a saved Look's name in the overview to apply
   its desktop components. The provider uses local IDs and launches an unprivileged apply action.
-- [x] **Undo toasts** for appearance applies and uninstall operations. User snapshots retain
+- [x] **Undo toasts** for appearance applies and wallpaper/font uninstall operations. Theme
+  uninstall is permanent and removes tracked unshared caches and matching Undo copies. User snapshots retain
   removed files for the session; privileged undo uses authenticated, root-owned snapshots.
 - [x] **Download manager:** queue, pause/resume, cancel, retained partial transfers and OCS MD5
   verification before extraction. Retry Install after cancellation or restarting the app.
@@ -197,6 +203,11 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
   Shell D-Bus activation, screen readers and Cinnamon/Budgie/XFCE settings still need real desktop
   verification. Debian/RPM build tools are unavailable here, so those recipes need distro builds;
   no release or AUR submission has been published. Spanish coverage is initial rather than complete.
+- Clean theme uninstall removes owned installed files, active user-theme links, tracked archive/
+  preview caches, finished transfer records and marked staging data. Shared variant caches remain
+  until the last installed copy is removed. Cache ownership is recorded on new installs/updates;
+  older GitHub boot-theme archives are recognized, while unowned legacy archives require
+  Downloads → Clear Finished. Removal failures are reported; records remain for variants still installed.
 - User undo is session-local and capped at twenty records; privileged undo retains ten snapshots.
   Cancelled downloads retain partial data; retry Install to resume after cancellation or app restart.
 
@@ -216,6 +227,18 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
 
 - New theme types, OCS response normalization, health checks and preview command isolation have
   regression tests. Actual Plymouth X11 rendering and GTK UI behavior still need desktop testing.
+- Boot theme imports discard Git/development metadata before staging and accept nested,
+  case-varied configuration filenames, plus named rEFInd flavour configs with shared assets
+  (such as Catppuccin). Missing-config errors identify installer/template and
+  editor/submodule archives; downloaded builders are never executed.
+- rEFInd includes and asset references use quoted native EFI backslashes. Reapply repairs
+  older Orbits-generated paths only after integrity verification, updates the baseline, and
+  retains rollback/undo for the repaired config. Actual reboot rendering still needs verification.
+- Read-only boot/EFI mount failures show a persistent popup with the reason for failed
+  apply/install/reset/remove operations; Orbits does not remount partitions automatically.
+- rEFInd offers an explicit built-in default theme. Reset disables custom appearance directives
+  and theme-only includes, keeps installed themes and unrelated boot entries, and refuses mixed
+  appearance/boot configuration includes for manual review. The change supports authenticated Undo.
 - Bootloader theme changes have temporary-directory regression tests; GRUB regeneration and
   rEFInd rendering still need end-to-end verification on real installations.
 - The login screen Apply/Reset, the boot splash change and installing for all users have only
@@ -225,6 +248,11 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
 - Large wallpaper, font-store, installed-theme and Looks grids use `Gtk.GridView` with data models
   and release previews when cards leave the bound set. Small fixed/paginated grids retain
   `Gtk.FlowBox`. Live scrolling, keyboard navigation and memory profiling need desktop verification.
+- Preview decoding uses a separate worker pool, cancels queued work for offscreen/rebound cards,
+  and honors requested thumbnail sizes. Installs/catalogue work can start while previews are busy;
+  scanning and sandbox validation still run before assets are consumed.
+- GTK, Shell, Icons and Cursors offer Restore Default Theme using the desktop's configured
+  defaults. GTK reset removes Orbits' libadwaita link override; installed themes remain available.
 - GDM tab/control builders and theme cards/actions live in separate UI modules.
 - Store download choices are remembered per item by filename; changed download URLs use the
   current catalogue. If a chosen file disappears, installation uses the normal default.

@@ -5,6 +5,7 @@ from orbits.theme_sources import source_url
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from orbits import net, themes
+from orbits.preview_jobs import track
 from orbits.ui.widgets import CoverPicture, load_texture_into
 
 ICON_SAMPLES = [
@@ -109,7 +110,7 @@ class ThemeCard(Gtk.Box):
                 box.append(picture)
                 load_texture_into(picture, path=str(path), size=128)
 
-        net.run_async(lambda: icon_samples(self.theme.path, ICON_SAMPLES), done)
+        track(self, net.run_preview(lambda: icon_samples(self.theme.path, ICON_SAMPLES), done))
         return box
 
     def _cursor_preview(self):
@@ -140,7 +141,7 @@ class ThemeCard(Gtk.Box):
                     img.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED,
                                                             GLib.Bytes.new(px), w * 4))
 
-        net.run_async(work, done)
+        track(self, net.run_preview(work, done))
         if not images:
             box.append(Gtk.Image(icon_name="input-mouse-symbolic", pixel_size=48, css_classes=["dim-label"]))
         return box

@@ -49,6 +49,11 @@ class ThemesPage(ThemeActions, Adw.Bin):
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=tr("Rescan"))
         refresh.connect("clicked", lambda *_: self.manager.refresh())
         header.pack_end(refresh)
+        if self.kind.id in ('gtk','shell','icons','cursors'):
+            reset=Gtk.Button(label=tr("Restore Default Theme"),
+                             tooltip_text=tr("Restore the desktop default without uninstalling themes"))
+            reset.connect('clicked',lambda *_:self.restore_default())
+            header.pack_end(reset)
         add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=tr("Install from File…"))
         add.connect("clicked", lambda *_: self._install_file())
         header.pack_start(add)

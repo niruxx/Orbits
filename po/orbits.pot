@@ -2314,3 +2314,61 @@ msgstr ""
 #: orbits/ui/theme_card.py
 msgid "No raster preview available"
 msgstr ""
+
+#: orbits/ui/boot_page.py
+msgid "Reapply"
+msgstr ""
+
+#: orbits/ui/boot_page.py
+msgid "Boot Partition Is Read-Only"
+msgstr ""
+
+#: orbits/ui/boot_page.py
+msgid "The filesystem containing /boot or your EFI system partition is mounted read-only. Orbits could not complete the boot theme change. Check that the correct partition is mounted writable, then try again."
+msgstr ""
+
+#: orbits/ui/boot_page.py
+#, python-brace-format
+msgid "Reason: {reason}"
+msgstr ""
+
+#: orbits/ui/boot_page.py
+msgid "Boot theme operation failed"
+msgstr ""
+
+msgid "Permanently removes the theme files and owned cache data. Requires your password."
+msgstr ""
+
+#, python-brace-format
+msgid "Permanently deletes {value0} and cache data no other installed theme uses. This cannot be undone."
+msgstr ""
+
+msgid "Permanently removes this theme and its unshared cache data. If active, the default is restored. This cannot be undone."
+msgstr ""
+
+msgid "Uninstall Theme?"
+msgstr ""
+
+msgid "Permanently removes the theme files and unshared cache data. This cannot be undone."
+msgstr ""
+
+msgid "Restore Default Theme"
+msgstr ""
+
+msgid "Restore the desktop default without uninstalling themes"
+msgstr ""
+
+msgid "Default theme restored"
+msgstr ""
+
+msgid "Default theme restored. Restart open applications to see all changes."
+msgstr ""
+
+msgid "rEFInd Default Theme"
+msgstr ""
+
+msgid "Built-in appearance. Installed themes stay available."
+msgstr ""
+
+msgid "Restores rEFInd’s built-in appearance by disabling custom theme includes and appearance overrides. Boot entries and installed themes are kept."
+msgstr ""

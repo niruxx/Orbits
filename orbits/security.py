@@ -66,6 +66,13 @@ def scan_with_settings(path, settings, directory, *, offline=False):
 
 def scan_download(path, database=None, *, recursive=False):
     """Fail closed when scanning was requested; never interpret an error as clean."""
+    if not recursive and database is not None and Path(path).is_file():
+        from orbits.clamav import scan, DaemonUnavailable
+        try:
+            scan(path, database)
+            return "No known malware detected"
+        except DaemonUnavailable:
+            pass  # Same fail-closed clamscan checks below when the private daemon cannot start.
     scanner = shutil.which("clamscan")
     if not scanner:
         raise RuntimeError("Malware scan unavailable: install ClamAV and update its signatures with freshclam")

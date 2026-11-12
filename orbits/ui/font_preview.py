@@ -1,10 +1,12 @@
 """Raster font previews with request ordering and no GUI font registration."""
 from gi.repository import Gdk, GLib
 from orbits import net
+from orbits.preview_jobs import cancel_pending, track
 from orbits.font_safety import render_font
 
 
 def load(picture, path, text, size, variations=None, features=None, face=0):
+    cancel_pending(picture)
     generation = getattr(picture, '_font_generation', 0) + 1
     picture._font_generation = generation
     def done(data, error):
@@ -18,6 +20,10 @@ def load(picture, path, text, size, variations=None, features=None, face=0):
             picture.set_tooltip_text(None)
     def start():
         if picture._font_generation == generation:
-            net.run_async(lambda: render_font(path, text[:2048], size, face=face, variations=variations, features=features), done)
+            def work():
+                if picture._font_generation != generation:
+                    return None
+                return render_font(path, text[:2048], size, face=face, variations=variations, features=features)
+            track(picture, net.run_preview(work, done))
         return False
     GLib.timeout_add(150, start)

@@ -51,6 +51,14 @@ def _switch(title, subtitle, key, on_change=None):
     return row
 
 
+def _button_row(title, subtitle, start_icon_name=None):
+    """An activatable row with a description and room for asynchronous status."""
+    row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True, use_markup=False)
+    if start_icon_name:
+        row.add_prefix(Gtk.Image(icon_name=start_icon_name))
+    return row
+
+
 def _offline_changed():
     app = Gio.Application.get_default()
     if app and app.window:
@@ -111,17 +119,17 @@ class PreferencesDialog(Adw.PreferencesDialog):
         downloads.add(_switch(tr("Automatically Update Virus Definitions"),
                               tr("Check for updates before scanning, at most once a day. Requires freshclam and a connection. Does not change system ClamAV services."),
                               'malware_auto_update', self._refresh_security_status))
-        self.definitions_row = Adw.ButtonRow(title=tr("Update Virus Definitions Now"),
+        self.definitions_row = _button_row(title=tr("Update Virus Definitions Now"),
                                             subtitle=tr("Download definitions for Orbits without administrator access"),
                                             start_icon_name="view-refresh-symbolic")
         self.definitions_row.connect("activated", self._update_definitions)
         downloads.add(self.definitions_row)
-        self.rescan_row = Adw.ButtonRow(title=tr("Scan Existing Appearance Assets"),
+        self.rescan_row = _button_row(title=tr("Scan Existing Appearance Assets"),
                                        subtitle=tr("Scan user wallpapers, fonts, themes and Looks with ClamAV. Includes assets installed outside Orbits; system assets and symlink targets are excluded."),
                                        start_icon_name="security-high-symbolic")
         self.rescan_row.connect("activated", self._rescan_assets)
         downloads.add(self.rescan_row)
-        self.integrity_row = Adw.ButtonRow(title=tr("Check Installed File Integrity"),
+        self.integrity_row = _button_row(title=tr("Check Installed File Integrity"),
                                           subtitle=tr("Compare managed appearance files with their recorded SHA-256 hashes"),
                                           start_icon_name="document-properties-symbolic")
         self.integrity_row.connect("activated", self._check_integrity)
@@ -133,7 +141,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.security_status.add_suffix(refresh)
         downloads.add(self.security_status)
         self._refresh_security_status()
-        self.legacy_row = Adw.ButtonRow(title=tr("Validate Older Managed Assets"),
+        self.legacy_row = _button_row(title=tr("Validate Older Managed Assets"),
                                        subtitle=tr("Validate files before recording their first integrity baseline. Existing baselines are never replaced; publisher identity remains unverified."))
         self.legacy_row.connect("activated", self._validate_legacy)
         downloads.add(self.legacy_row)

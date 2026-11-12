@@ -132,6 +132,17 @@ class GridLifecycleTests(unittest.TestCase):
         self.assertEqual(self.created, ['first', 'second'])
         self.assertIsNot(item.child, card)
 
+    def test_unbinding_cancels_queued_work_on_cards_and_nested_pictures(self):
+        from concurrent.futures import Future
+        item = ListItem('preview')
+        self.grid._bind(None, item)
+        card_job, picture_job = Future(), Future()
+        item.child._preview_futures = [card_job]
+        item.child.child._preview_futures = [picture_job]
+        self.grid._unbind(None, item)
+        self.assertTrue(card_job.cancelled())
+        self.assertTrue(picture_job.cancelled())
+
     def test_unbound_cards_are_not_retained_after_many_rebindings(self):
         item = ListItem(None)
         references = []

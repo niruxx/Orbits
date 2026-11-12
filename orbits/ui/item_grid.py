@@ -4,6 +4,7 @@ Keep this widget directly inside a ScrolledWindow so GTK receives a viewport
 and can recycle offscreen rows. Headers and footers belong outside that scroller.
 """
 from gi.repository import Gio, GObject, Gtk
+from orbits.preview_jobs import cancel_pending
 
 
 class GridItem(GObject.Object):
@@ -14,6 +15,7 @@ class GridItem(GObject.Object):
 
 def release_previews(widget):
     """Invalidate pending callbacks and release paintables when a card is unbound."""
+    cancel_pending(widget)
     widget._grid_released = True
     if hasattr(widget, '_texture_request'):
         widget._texture_request = None

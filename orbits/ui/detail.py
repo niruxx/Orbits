@@ -186,7 +186,7 @@ class DetailDialog(Adw.Dialog):
             return
         if self.lib.is_installed(key):
             entry = self.lib.items[key]
-            self._btn("Uninstall", ["destructive-action"], lambda: self.lib.uninstall(key), "user-trash-symbolic")
+            self._btn("Uninstall", ["destructive-action"], lambda: self._uninstall_theme(key), "user-trash-symbolic")
             if not self.page.wallpaper_extras:
                 self._btn(self.page.apply_label, ["suggested-action"], lambda: self.page._apply(entry),
                           self.page.apply_icon)
@@ -211,9 +211,35 @@ class DetailDialog(Adw.Dialog):
             self._btn(self.page.apply_label, ["suggested-action"], lambda: self.page.install(self.item, apply=True),
                       self.page.apply_icon)
 
+    def _uninstall_theme(self, key, after=None):
+        def done(ok,message):
+            if not ok:
+                self.page.window.toast(message,timeout=6)
+            elif after:
+                after()
+        theme=hasattr(self.lib,'kind') or hasattr(self.lib,'loader')
+        def remove():
+            if theme:
+                self.lib.uninstall(key,done)
+            else:
+                try:self.lib.uninstall(key)
+                except (OSError,RuntimeError) as error:done(False,str(error))
+                else:done(True,'')
+        if theme and after is None:
+            dialog=Adw.AlertDialog(heading=tr("Uninstall Theme?"),
+                body=tr("Permanently removes the theme files and unshared cache data. This cannot be undone."))
+            dialog.add_response('cancel',tr('Cancel'))
+            dialog.add_response('remove',tr('Uninstall'))
+            dialog.set_response_appearance('remove',Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.connect('response',lambda _dialog,response:remove() if response=='remove' else None)
+            dialog.present(self.page.window)
+        else:
+            remove()
+
     def _install(self, download):
         if self.lib.is_installed(self.item.key):
-            self.lib.uninstall(self.item.key)
-        self.page.install(self.item, download)
+            self._uninstall_theme(self.item.key,lambda:self.page.install(self.item,download))
+        else:
+            self.page.install(self.item,download)
 
 

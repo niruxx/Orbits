@@ -1,10 +1,12 @@
 """Tests for the privileged helper, run against temporary directories (no root needed)."""
 import os
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import gi
@@ -38,7 +40,8 @@ class HelperTestCase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="orbits-test-"))
         self._saved = {k: getattr(H, k) for k in ("SHELL_DIR", "GRESOURCE", "BACKUP", "ALTERNATIVES", "ALT_CMD",
                                                     "OUR_DIR", "OUR_GRES", "ALT_BASE_FILE", "GDM_CONF_CANDIDATES",
-                                                    "THEME_BASES")}
+                                                    "THEME_BASES", "UNDO_DIR")}
+        H.UNDO_DIR = str(self.tmp/"undo")
         self._saved["THEME_BASES"] = dict(H.THEME_BASES)
         shell = self.tmp / "gnome-shell"
         shell.mkdir()
@@ -218,6 +221,44 @@ class BootloaderTests(HelperTestCase):
         H.GRUB_DEFAULT, H.ESP_CANDIDATES, H.GRUB_DIRS, H.grub_mkconfig = self._boot
         super().tearDown()
 
+    def test_refind_staging_discards_repository_metadata_before_helper_install(self):
+        from orbits.boot import stage_boot_theme
+        (self.src/'.gitattributes').write_text('* text=auto\n')
+        (self.src/'.github').mkdir()
+        (self.src/'.github/workflow.yml').write_text('not an installed asset')
+        staged=self.tmp/'staged-refind'
+        stage_boot_theme(self.src,staged,'refind')
+        H.cmd_boot_theme_install('refind',str(staged),'clean-metadata')
+        installed=self.conf.parent/'themes/clean-metadata'
+        self.assertTrue((installed/'theme.conf').is_file())
+        self.assertFalse((installed/'.gitattributes').exists())
+        self.assertFalse((installed/'.github').exists())
+
+    def test_catppuccin_style_flavours_rewrite_shared_asset_paths(self):
+        from orbits.boot import find_boot_themes,stage_boot_theme
+        repository=self.tmp/'catppuccin'
+        repository.mkdir()
+        for flavour in ('latte','frappe','macchiato','mocha'):
+            assets=repository/'assets'/flavour
+            (assets/'icons').mkdir(parents=True)
+            shutil.copyfile(self.src/'bg.png',assets/'background.png')
+            (repository/(flavour+'.conf')).write_text(
+                f'icons_dir themes/catppuccin/assets/{flavour}/icons\n'
+                f'banner themes/catppuccin/assets/{flavour}/background.png\n')
+        found=find_boot_themes(repository,'refind','catppuccin')
+        self.assertEqual(len(found),4)
+        original=self.conf.read_text()
+        for source,name in found:
+            staged=self.tmp/('staged-'+name)
+            stage_boot_theme(source,staged,'refind')
+            H.cmd_boot_theme_install('refind',str(staged),name)
+            installed=self.conf.parent/'themes'/name
+            config=(installed/'theme.conf').read_text()
+            flavour=source.stem
+            self.assertIn(f'themes/{name}/assets/{flavour}/background.png'.replace('/', '\\'),config)
+            self.assertTrue((installed/'assets'/flavour/'background.png').is_file())
+        self.assertEqual(self.conf.read_text(),original)
+
     def test_refind_install_apply_reset(self):
         H.cmd_boot_theme_install("refind", str(self.src), "neat")
         self.assertTrue((self.conf.parent / "themes" / "neat" / ".orbits.json").exists())
@@ -228,6 +269,67 @@ class BootloaderTests(HelperTestCase):
         H.cmd_boot_theme_reset("refind")
         self.assertEqual(self.conf.read_text(), "timeout 5\ninclude themes/old/theme.conf\n")
         self.assertTrue(os.path.exists(str(self.conf) + ".orbits-backup"))
+
+    def test_refind_builtin_default_disables_styling_but_preserves_boot_entries(self):
+        old=self.conf.parent/'themes/old'
+        old.mkdir(parents=True)
+        (old/'theme.conf').write_text('banner bg.png\n')
+        original=('timeout 17\ndefault_selection Linux\ninclude themes/old/theme.conf\n'
+                  'banner old.png\nicons_dir old-icons\n'
+                  'menuentry "My Linux" {\n loader \\EFI\\Linux\\vmlinuz.efi\n}\n')
+        self.conf.write_text(original)
+        H.cmd_boot_theme_install('refind',str(self.src),'kept')
+        H.cmd_boot_theme_apply('refind','kept')
+        H.cmd_boot_theme_default('refind')
+        text=self.conf.read_text()
+        active=[tokens for line in text.splitlines() if (tokens:=H._refind_tokens(line))]
+        self.assertFalse(any(tokens[0].lower() in H.REFIND_APPEARANCE for tokens in active))
+        self.assertFalse(any(tokens[0].lower()=='include' for tokens in active))
+        self.assertIn('timeout 17',text)
+        self.assertIn('default_selection Linux',text)
+        self.assertIn('menuentry "My Linux" {',text)
+        self.assertTrue((self.conf.parent/'themes/kept/theme.conf').exists())
+        self.assertEqual(H.refind_current_theme(),'')
+        H.cmd_boot_theme_default('refind')
+        self.assertEqual(self.conf.read_text(),text)
+        self.assertEqual(H.undo_targets(['helper','boot-theme-default','refind'])[0],[str(self.conf)])
+
+    def test_refind_builtin_default_preserves_unrelated_include(self):
+        (self.conf.parent/'manual.conf').write_text('menuentry Linux {\nloader \\EFI\\Linux\\vmlinuz.efi\n}\n')
+        self.conf.write_text('timeout 5\ninclude manual.conf\n')
+        H.cmd_boot_theme_default('refind')
+        self.assertIn('include manual.conf',self.conf.read_text())
+
+    def test_refind_builtin_default_refuses_mixed_theme_and_boot_include(self):
+        (self.conf.parent/'mixed.conf').write_text('banner old.png\nmenuentry Linux {\nloader linux.efi\n}\n')
+        self.conf.write_text('include mixed.conf\n')
+        original=self.conf.read_bytes()
+        with self.assertRaisesRegex(ValueError,'also contains boot entries'):
+            H.cmd_boot_theme_default('refind')
+        self.assertEqual(self.conf.read_bytes(),original)
+
+    def test_refind_builtin_default_refuses_include_with_boot_preferences(self):
+        (self.conf.parent/'mixed.conf').write_text('banner old.png\ntimeout 12\n')
+        self.conf.write_text('include mixed.conf\n')
+        original=self.conf.read_bytes()
+        with self.assertRaisesRegex(ValueError,'other settings'):
+            H.cmd_boot_theme_default('refind')
+        self.assertEqual(self.conf.read_bytes(),original)
+
+    def test_refind_default_handles_native_equals_syntax_and_quoted_delimiters(self):
+        self.conf.write_text('banner=old.png\nicons_dir=old-icons\ninclude=themes/old/theme.conf\ntimeout=9\n')
+        H.cmd_boot_theme_default('refind')
+        active=[tokens for line in self.conf.read_text().splitlines() if (tokens:=H._refind_tokens(line))]
+        self.assertEqual(active,[['timeout','9']])
+        self.assertEqual(H._refind_tokens('banner "themes/a/with=commas,name.png"'),
+                         ['banner','themes/a/with=commas,name.png'])
+
+    def test_refind_builtin_default_refuses_external_include(self):
+        self.conf.write_text('include ../other.conf\n')
+        original=self.conf.read_bytes()
+        with self.assertRaisesRegex(ValueError,'external'):
+            H.cmd_boot_theme_default('refind')
+        self.assertEqual(self.conf.read_bytes(),original)
 
     def test_grub_apply_and_reset_restore_config(self):
         H.grub_mkconfig = lambda: None  # no real GRUB in tests
@@ -247,11 +349,80 @@ class BootloaderTests(HelperTestCase):
     def test_refind_names_with_spaces_and_active_removal(self):
         H.cmd_boot_theme_install("refind", str(self.src), "My Theme")
         H.cmd_boot_theme_apply("refind", "My Theme")
-        self.assertIn('include "themes/My Theme/theme.conf"', self.conf.read_text())
+        self.assertIn('include "themes/My Theme/theme.conf"'.replace('/', '\\'), self.conf.read_text())
         self.assertEqual(H.refind_current_theme(), "My Theme")
         H.cmd_boot_theme_remove("refind", "My Theme")
         self.assertEqual(H.refind_current_theme(), "old")
         self.assertFalse((self.conf.parent / "themes" / "My Theme").exists())
+
+    def test_read_only_boot_mount_error_names_the_target_without_assuming_immutable_os(self):
+        with patch.object(H,'read_only',return_value=True):
+            with self.assertRaises(PermissionError) as error:
+                H.require_writable('/boot/EFI/refind/themes')
+        self.assertIn('/boot/EFI/refind/themes',str(error.exception))
+        self.assertIn('read-only filesystem',str(error.exception))
+        self.assertNotIn('immutable system',str(error.exception))
+
+    def test_permanent_remove_purges_matching_old_undo_copies(self):
+        H.cmd_boot_theme_install('refind',str(self.src),'removed')
+        destination=self.conf.parent/'themes/removed'
+        undo=Path(H.UNDO_DIR)
+        for letter,target in (('a',destination),('b',self.tmp/'another-theme')):
+            record=undo/(letter*32)
+            (record/'0').mkdir(parents=True)
+            (record/'0/old-theme-file').write_text('retained bytes')
+            (record/'manifest.json').write_text(json.dumps({'paths':[{'path':str(target)}]}))
+        H.cmd_boot_theme_remove('refind','removed')
+        self.assertFalse(destination.exists())
+        self.assertFalse((undo/('a'*32)).exists())
+        self.assertTrue((undo/('b'*32)).exists())
+        self.assertEqual(H.undo_targets(['helper','boot-theme-remove','refind','removed']),([],''))
+        self.assertEqual(H.undo_targets(['helper','theme-remove','icons','removed']),([],''))
+
+    def _legacy_refind_theme(self):
+        H.cmd_boot_theme_install('refind',str(self.src),'legacy')
+        installed=self.conf.parent/'themes/legacy'
+        config=installed/'theme.conf'
+        config.write_text(config.read_text().replace(chr(92),'/'))
+        H.record_tree(installed,plain=True)
+        return installed,config,installed/H.INTEGRITY_MANIFEST
+
+    def test_reapply_repairs_verified_old_paths_and_refreshes_integrity(self):
+        installed,config,manifest=self._legacy_refind_theme()
+        self.assertIn('"themes/legacy/bg.png"',config.read_text())
+        H.cmd_boot_theme_apply('refind','legacy')
+        self.assertIn('"themes'+chr(92)+'legacy'+chr(92)+'bg.png"',config.read_text())
+        self.assertIn('include "themes'+chr(92)+'legacy'+chr(92)+'theme.conf"',self.conf.read_text())
+        self.assertTrue(H.verify_tree(installed))
+        paths,_=H.undo_targets(['helper','boot-theme-apply','refind','legacy'])
+        self.assertIn(str(config),paths)
+        self.assertIn(str(manifest),paths)
+
+    def test_failed_reapply_restores_original_config_and_integrity(self):
+        installed,config,manifest=self._legacy_refind_theme()
+        before=(config.read_bytes(),manifest.read_bytes(),self.conf.read_bytes())
+        with patch.object(H,'_set_refind_include',side_effect=RuntimeError('write failed')):
+            with self.assertRaisesRegex(RuntimeError,'write failed'):
+                H.cmd_boot_theme_apply('refind','legacy')
+        self.assertEqual((config.read_bytes(),manifest.read_bytes(),self.conf.read_bytes()),before)
+        self.assertTrue(H.verify_tree(installed))
+
+    def test_integrity_write_failure_rolls_back_path_repair(self):
+        installed,config,manifest=self._legacy_refind_theme()
+        before=(config.read_bytes(),manifest.read_bytes())
+        with patch.object(H,'record_tree',side_effect=RuntimeError('baseline write failed')):
+            with self.assertRaisesRegex(RuntimeError,'baseline write failed'):
+                H.cmd_boot_theme_apply('refind','legacy')
+        self.assertEqual((config.read_bytes(),manifest.read_bytes()),before)
+        self.assertTrue(H.verify_tree(installed))
+
+    def test_tampered_theme_is_not_repaired_or_applied(self):
+        installed,config,manifest=self._legacy_refind_theme()
+        original=self.conf.read_bytes()
+        config.write_text(config.read_text()+'hideui hints\n')
+        with self.assertRaisesRegex(ValueError,'changed since validation'):
+            H.cmd_boot_theme_apply('refind','legacy')
+        self.assertEqual(self.conf.read_bytes(),original)
 
     def test_grub_failure_restores_defaults_and_generated_menu(self):
         defaults = Path(H.GRUB_DEFAULT)

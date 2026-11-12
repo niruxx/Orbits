@@ -13,7 +13,7 @@ from orbits.library import IMAGE_EXTS, get_library
 from orbits.ui.gdm_preview import GdmPreview
 from orbits.gdm.backgrounds import render_backgrounds
 from orbits import net
-from orbits.ui.widgets import CoverPicture, local_thumbnail, load_optional_texture_into
+from orbits.ui.widgets import CoverPicture, load_texture_into, load_optional_texture_into
 
 from orbits.ui.gdm_controls import GdmControls
 
@@ -166,7 +166,7 @@ class GdmPage(GdmControls, Adw.Bin):
             return
         for title, path in recs:
             pic = CoverPicture(128, 80, css_classes=["card"])
-            net.run_async(local_thumbnail, lambda tex, err, p=pic: tex and p.set_paintable(tex), path, 256)
+            load_texture_into(pic, path=path, size=256)
             btn = Gtk.Button(child=pic, css_classes=["flat"], tooltip_text=title)
             btn.connect("clicked", lambda _b, p=path: (self.lib_popover.popdown(), self.set_background_image(p)))
             flow.append(btn)
@@ -205,7 +205,7 @@ class GdmPage(GdmControls, Adw.Bin):
         self.image_row.set_subtitle(Path(img).name if img else "No image selected")
         if img and os.path.exists(img) and getattr(self, "_thumb_for", None) != img:
             self._thumb_for = img
-            net.run_async(local_thumbnail, lambda tex, err: tex and self.image_thumb.set_paintable(tex), img, 256)
+            load_optional_texture_into(self.image_thumb, img, size=256)
         logo = self.model.get("logo")
         self.logo_row.set_subtitle(Path(logo).name if logo else "No logo")
         load_optional_texture_into(self.logo_thumb, logo, size=256)

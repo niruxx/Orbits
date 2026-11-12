@@ -17,6 +17,7 @@ usage: helper.py apply <spec.json>
        helper.py boot-theme-apply <grub|refind> <name>
        helper.py boot-theme-remove <grub|refind> <name>
        helper.py boot-theme-reset <grub|refind>
+       helper.py boot-theme-default <grub|refind>
 
 The spec is produced by orbits.gdm.model.build_spec().  Everything the helper writes is tagged so a
 reset returns the system to exactly what it was before Orbits touched it.
@@ -117,7 +118,7 @@ def relabel(path):
 
 
 def read_only(path):
-    """True if path sits on a read-only mount (Silverblue, NixOS, SteamOS…)."""
+    """True if path sits on a read-only mount, including protected boot/EFI mounts."""
     p = path
     while not os.path.exists(p):
         p = os.path.dirname(p)
@@ -127,7 +128,7 @@ def read_only(path):
 def require_writable(*paths):
     for p in paths:
         if read_only(p):
-            raise PermissionError(f"{p} is on a read-only filesystem (immutable system); "
+            raise PermissionError(f"{p} is on a read-only filesystem; "
                                   "Orbits can't make system-wide changes here")
 
 
@@ -851,15 +852,39 @@ def plymouth_default():
         return ""
 
 
+def _purge_theme_undo(destination):
+    """Invalidate retained Undo records that contain the permanently removed theme."""
+    root = Path(UNDO_DIR)
+    if not root.is_dir() or root.is_symlink():
+        return
+    target = Path(destination)
+    for record in root.iterdir():
+        if record.is_symlink() or not record.is_dir() or not re.fullmatch('[0-9a-f]{32}', record.name):
+            continue
+        manifest = record/'manifest.json'
+        if manifest.is_symlink() or not manifest.is_file() or manifest.stat().st_size > 2 * 1024**2:
+            continue
+        try:
+            data = json.loads(manifest.read_text())
+        except (OSError, ValueError):
+            continue
+        paths = data.get('paths', []) if isinstance(data, dict) else []
+        if any(isinstance(entry, dict) and isinstance(entry.get('path'), str)
+               and Path(entry['path']).is_relative_to(target) for entry in paths):
+            shutil.rmtree(record)
+
+
 def cmd_theme_remove(base_key, name):
     dest = _theme_dest(base_key, name)
     if not os.path.isdir(dest):
+        _purge_theme_undo(dest)
         return
     if not os.path.exists(os.path.join(dest, THEME_MARKER)):
         raise PermissionError(f"{name} wasn't installed by Orbits; remove it with your package manager")
     if base_key == "plymouth" and plymouth_default() == name:
         raise RuntimeError(f"{name} is the active boot splash; choose another one first")
     shutil.rmtree(dest)
+    _purge_theme_undo(dest)
     log(f"removed {dest}")
 
 
@@ -1085,6 +1110,7 @@ def _refind_text(path):
 def _refind_tokens(line):
     lexer = shlex.shlex(line, posix=True)
     lexer.whitespace_split = True
+    lexer.whitespace += '=,'  # rEFInd also separates unquoted tokens with equals/commas.
     lexer.escape = ''  # EFI paths use backslashes, unlike a Unix shell.
     return list(lexer)
 
@@ -1103,6 +1129,13 @@ def refind_current_theme():
             if len(parts) == 3 and parts[0].lower() == 'themes' and parts[2].lower() == 'theme.conf':
                 current = parts[1]
     return current
+
+
+def _refind_efi_path(value):
+    """Quoted rEFInd tokens preserve slashes; emit native EFI separators explicitly."""
+    if any(character in value for character in ('"', '\n', '\r', '\0')):
+        raise ValueError('Invalid character in rEFInd resource path')
+    return value.replace('/', '\\')
 
 
 def _prepare_refind_theme(root, name):
@@ -1136,10 +1169,14 @@ def _prepare_refind_theme(root, name):
             valid = target.is_dir() if keyword == 'icons_dir' else target.is_file()
             if not valid:
                 raise ValueError('Missing rEFInd resource: ' + relative)
-            result.append(f'{keyword} "themes/{name}/{relative}"')
+            efi_path = _refind_efi_path(f'themes/{name}/{relative}')
+            result.append(f'{keyword} "{efi_path}"')
         else:
             result.append(line)
-    _write_refind_text(path, '\n'.join(result) + '\n', codec)
+    normalized = '\n'.join(result) + '\n'
+    if normalized != text:
+        _write_refind_text(path, normalized, codec)
+    return normalized != text
 
 
 def _write_refind_text(path, text, codec):
@@ -1316,7 +1353,44 @@ def grub_mkconfig():
         raise RuntimeError("GRUB config regeneration failed: " + " / ".join(tail))
 
 
-def _set_refind_include(name):
+REFIND_APPEARANCE = frozenset({
+    'icons_dir', 'banner', 'banner_scale', 'selection_big', 'selection_small',
+    'font', 'hideui', 'big_icon_size', 'small_icon_size',
+})
+
+
+def _refind_builtin_config(directory, text):
+    """Disable custom appearance while leaving boot entries and unrelated includes intact."""
+    root = Path(directory).resolve()
+    output = []
+    for line in text.splitlines(keepends=True):
+        tokens = _refind_tokens(line)
+        if not tokens:
+            output.append(line)
+            continue
+        keyword = tokens[0].lower()
+        disable = keyword in REFIND_APPEARANCE
+        if keyword == 'include' and len(tokens) == 2:
+            relative = tokens[1].replace('\\', '/')
+            parts = relative.strip('/').split('/')
+            if any(part in ('', '.', '..') for part in parts) or ':' in relative or relative.startswith('/'):
+                raise ValueError('Review external rEFInd includes before restoring the built-in theme')
+            target = root.joinpath(*parts)
+            if target.is_symlink() or not target.resolve().is_relative_to(root):
+                raise ValueError('Review linked or external rEFInd includes before restoring the built-in theme')
+            directives = []
+            if target.is_file():
+                contents, _codec = _refind_text(target)
+                directives = [parsed[0].lower() for included in contents.splitlines()
+                              if (parsed := _refind_tokens(included))]
+            disable = parts[0].lower() == 'themes' or bool(REFIND_APPEARANCE.intersection(directives))
+            if disable and (set(directives) - REFIND_APPEARANCE - {'use_graphics_for', 'showtools'}):
+                raise ValueError('A theme include also contains boot entries or other settings; separate its appearance settings before restoring defaults: '+relative)
+        output.append('# Orbits default: '+line if disable else line)
+    return ''.join(output)
+
+
+def _set_refind_include(name, *, builtin=False):
     directory = refind_dir()
     if not directory:
         raise FileNotFoundError('rEFInd configuration was not found')
@@ -1354,11 +1428,14 @@ def _set_refind_include(name):
             raise ValueError('Invalid rEFInd theme name')
         if result and not result.endswith(('\n', '\r')):
             result += newline
-        result += REFIND_BEGIN + newline + f'include "themes/{name}/theme.conf"' + newline + REFIND_END + newline
+        efi_path = _refind_efi_path(f'themes/{name}/theme.conf')
+        result += REFIND_BEGIN + newline + f'include "{efi_path}"' + newline + REFIND_END + newline
     else:
         original, _ = _refind_text(backup)
         if result == original + newline:
             result = original
+    if builtin:
+        result = _refind_builtin_config(directory, result)
     _write_refind_text(conf, result, codec)
     log(f'updated {conf}')
 
@@ -1368,12 +1445,37 @@ def cmd_boot_theme_apply(loader, name):
     dest = _theme_dest_in(root, name)
     if not os.path.isfile(os.path.join(dest, _theme_file(loader))):
         raise FileNotFoundError(f"{name} isn't installed for {loader}")
-    verify_tree(dest)
+    verified = verify_tree(dest)
     if loader == "grub":
         _change_grub_theme(os.path.join(dest, "theme.txt"))
     else:
-        _set_refind_include(name)
+        theme_config = Path(dest)/'theme.conf'
+        manifest = Path(dest)/INTEGRITY_MANIFEST
+        repair = verified is True and (Path(dest)/BOOT_MARKER).is_file()
+        original = _refind_text(theme_config) if repair else None
+        original_manifest = manifest.read_bytes() if repair else None
+        try:
+            if repair:
+                validate_theme_tree(dest, 'refind')
+                if _prepare_refind_theme(dest, name):
+                    record_tree(dest, plain=True)
+            _set_refind_include(name)
+        except Exception:
+            if repair:
+                _write_refind_text(theme_config, *original)
+                manifest.write_bytes(original_manifest)
+            raise
     log(f"{loader} theme set to {name}")
+
+
+def cmd_boot_theme_default(loader):
+    if loader == 'refind':
+        _set_refind_include(None, builtin=True)
+    elif loader == 'grub':
+        cmd_boot_theme_reset(loader)
+    else:
+        raise ValueError(loader)
+    log(f'{loader} default theme restored')
 
 
 def cmd_boot_theme_reset(loader):
@@ -1390,6 +1492,7 @@ def cmd_boot_theme_remove(loader, name):
     root = _themes_root(loader)
     dest = _theme_dest_in(root, name)
     if not os.path.isdir(dest):
+        _purge_theme_undo(dest)
         return
     if not os.path.exists(os.path.join(dest, BOOT_MARKER)):
         raise PermissionError(f"{name} wasn't installed by Orbits")
@@ -1398,6 +1501,7 @@ def cmd_boot_theme_remove(loader, name):
     if current == name:
         cmd_boot_theme_reset(loader)
     shutil.rmtree(dest)
+    _purge_theme_undo(dest)
     log(f"removed {dest}")
 
 
@@ -1511,6 +1615,8 @@ UNDO_DIR = "/var/lib/orbits/undo"
 
 def undo_targets(argv):
     command = argv[1] if len(argv) > 1 else ""
+    if command in ('theme-remove', 'boot-theme-remove'):
+        return [], ''  # A clean theme uninstall must not retain a full Undo copy.
     paths, refresh = [], ""
     if command in ("apply", "reset"):
         paths = [GRESOURCE, BACKUP, OUR_DIR, DCONF_FILE, DCONF_PROFILE, gdm_conf_path(), DATA_DIR,
@@ -1524,17 +1630,11 @@ def undo_targets(argv):
             raise ValueError("Invalid font name")
         paths = [os.path.join(SYSTEM_FONTS, argv[2])]
         refresh = "fonts"
-    elif command == "theme-remove" and len(argv) == 4:
-        paths = [_theme_dest(argv[2], argv[3])]
-        refresh = "plymouth" if argv[2] == "plymouth" else ""
-        if refresh:
-            paths += ["/etc/plymouth/plymouthd.conf", "/usr/share/plymouth/themes/default.plymouth",
-                      "/etc/alternatives/default.plymouth", "/var/lib/dpkg/alternatives/default.plymouth"]
     elif command == "plymouth-set" and len(argv) == 3:
         paths = ["/etc/plymouth/plymouthd.conf", "/usr/share/plymouth/themes/default.plymouth",
                  "/etc/alternatives/default.plymouth", "/var/lib/dpkg/alternatives/default.plymouth"]
         refresh = "plymouth"
-    elif command in ("boot-theme-apply", "boot-theme-reset", "boot-theme-remove") and len(argv) >= 3:
+    elif command in ("boot-theme-apply", "boot-theme-reset", "boot-theme-default") and len(argv) >= 3:
         loader = argv[2]
         if loader == "grub":
             paths = [GRUB_DEFAULT, os.path.join(grub_dir(), "grub.cfg")]
@@ -1542,8 +1642,9 @@ def undo_targets(argv):
             paths = [os.path.join(refind_dir(), "refind.conf")]
         else:
             raise ValueError("Unknown bootloader")
-        if command == "boot-theme-remove" and len(argv) == 4:
-            paths.append(_theme_dest_in(_themes_root(loader), argv[3]))
+        if command == "boot-theme-apply" and loader == "refind" and len(argv) == 4:
+            theme = _theme_dest_in(_themes_root(loader), argv[3])
+            paths.extend([os.path.join(theme, 'theme.conf'), os.path.join(theme, INTEGRITY_MANIFEST)])
     return list(dict.fromkeys(paths)), refresh
 
 
@@ -1710,6 +1811,8 @@ def main(argv):
             cmd_boot_theme_apply(argv[2], argv[3])
         elif len(argv) == 4 and argv[1] == "boot-theme-remove":
             cmd_boot_theme_remove(argv[2], argv[3])
+        elif len(argv) == 3 and argv[1] == "boot-theme-default":
+            cmd_boot_theme_default(argv[2])
         elif len(argv) == 3 and argv[1] == "boot-theme-reset":
             cmd_boot_theme_reset(argv[2])
         else:

@@ -4,6 +4,7 @@ from gi.repository import Adw, GLib, GObject, Gtk, PangoCairo
 
 from orbits.config import settings
 from orbits import net
+from orbits.preview_jobs import track
 from orbits.fonts import get_font_library, preview_font_file
 from orbits.ui.font_preview import load as load_font_preview
 from orbits.ui.font_actions import apply_menu_button, font_attrs
@@ -69,7 +70,7 @@ class FontCard(Gtk.Box):
             elif err:
                 self.big.set_tooltip_text(str(err))
 
-        net.run_async(lambda: None if getattr(self, "_grid_released", False) else preview_font_file(self.item), done)
+        track(self, net.run_preview(lambda: None if getattr(self, "_grid_released", False) else preview_font_file(self.item), done))
 
     def update(self, lib):
         key = self.item.key
@@ -301,7 +302,7 @@ class FontDetailDialog(Adw.Dialog):
             self._update_text()
             load_font_preview(self.samples[-1][0], path, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !?&@#%(){}', 16)
         if self.item.preview_url:
-            net.run_async(lambda: None if getattr(self, "_grid_released", False) else preview_font_file(self.item), done)
+            track(self, net.run_preview(lambda: None if getattr(self, "_grid_released", False) else preview_font_file(self.item), done))
 
     def _sync(self):
         while (c := self.buttons.get_first_child()):

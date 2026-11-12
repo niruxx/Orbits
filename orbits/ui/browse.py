@@ -13,7 +13,7 @@ from orbits.ui.item_grid import ItemGrid
 class BrowsePage(Adw.Bin):
     def __init__(self, window, source, lib=None, apply_label="Set as Wallpaper",
                  apply_icon="preferences-desktop-wallpaper-symbolic", on_apply=None, describe=None,
-                 title_widget=None, wallpaper_extras=True):
+                 title_widget=None, wallpaper_extras=True, on_install_error=None):
         """lib/on_apply/describe let other item types (themes) reuse this page.
 
         on_apply(entry) applies an installed entry; describe(entry) returns the "Installed …" toast text.
@@ -24,6 +24,7 @@ class BrowsePage(Adw.Bin):
         self.lib = lib or get_library()
         self.apply_label, self.apply_icon = apply_label, apply_icon
         self._on_apply, self._describe = on_apply, describe
+        self._on_install_error = on_install_error
         self.wallpaper_extras = wallpaper_extras
         self.page = 1
         self.has_more = True
@@ -231,7 +232,10 @@ class BrowsePage(Adw.Bin):
 
         def done(entry, err):
             if err:
-                self.window.toast(tr('Install failed: {value0}').format(value0=err), timeout=5)
+                if self._on_install_error:
+                    self._on_install_error(err)
+                else:
+                    self.window.toast(tr('Install failed: {value0}').format(value0=err), timeout=5)
             else:
                 if apply:
                     self._apply(entry)
