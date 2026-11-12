@@ -16,6 +16,7 @@ from pathlib import Path
 
 from gi.repository import Gio, GLib, GObject
 
+from orbits.rejections import guarded
 from orbits import net
 from orbits.config import DATA_DIR
 from orbits.sources.kde import OcsSource
@@ -738,6 +739,7 @@ class ThemeManager(GObject.Object):
 
         next_one()
 
+    @guarded
     def _install_blocking(self, item, download, report):
         kind = self.kind
         with tempfile.TemporaryDirectory(prefix="orbits-theme-") as tmp:

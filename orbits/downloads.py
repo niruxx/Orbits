@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from orbits.security import MAX_DOWNLOAD, inspect_archive
+from orbits.rejections import ScanRejected,discard_owned
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ class Transfer:
     received: int = 0
     total: int = 0
     error: str = ""
+    rejection: object = field(default=None,repr=False)
     scan_result: str = "Not scanned"
     publisher_result: str = "Publisher unverified"
     progress: object = None
@@ -77,6 +79,7 @@ class DownloadManager:
         if job.state == 'cancelled':
             raise DownloadCancelled('Download cancelled; partial data is kept for a later retry')
         if job.state == 'failed':
+            if job.rejection is not None:raise job.rejection
             raise RuntimeError(job.error)
         return job.result
 
@@ -141,7 +144,8 @@ class DownloadManager:
                         job.state = 'completed'
             except Exception as error:
                 with job.condition:
-                    if job.state not in ('paused', 'cancelled'):
+                    if isinstance(error,ScanRejected):job.rejection=error.with_traceback(None)
+                    if isinstance(error,ScanRejected) or job.state not in ('paused', 'cancelled'):
                         job.error = str(error)
                         job.state = 'failed'
             finally:
@@ -274,17 +278,28 @@ class DownloadManager:
             self.changed()
             try:
                 job.scan_result = self.scanner(source)
-            except Exception:
+            except Exception as error:
                 job.scan_result = "Scan blocked installation"
-                source.unlink(missing_ok=True)
+                key=hashlib.sha256((job.url+'\0'+job.algorithm+'\0'+job.checksum).encode()).hexdigest()
+                rejected=error if isinstance(error,ScanRejected) else ScanRejected(str(error))
+                rejected.source=job.url
+                rejected.label=job.label
+                discard_owned([source]+[self.directory/(key+suffix) for suffix in ('.complete','.part','.json','.tmp')],rejected)
+                if isinstance(error,ScanRejected):raise
+                if rejected.cleanup_errors:raise RuntimeError(str(rejected)) from error
                 raise
             if job.interrupt.is_set():
                 return None
         inspect_archive(source)
         job.destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = job.destination.with_name(job.destination.name+'.orbits-part')
-        shutil.copyfile(source, temporary)
-        os.replace(temporary, job.destination)
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=job.destination.parent,prefix='.orbits-delivery-',delete=False) as output:
+            temporary=Path(output.name)
+        try:
+            shutil.copyfile(source,temporary)
+            os.replace(temporary,job.destination)
+        finally:
+            temporary.unlink(missing_ok=True)
         job.received = source.stat().st_size
         return info.get('type', 'application/octet-stream'), info.get('url', job.url)
 
@@ -304,7 +319,10 @@ def get_manager():
         from orbits.config import CACHE_DIR
         from gi.repository import GLib
         def changed():
-            GLib.idle_add(lambda: ([callback() for callback in list(_listeners)], False)[1])
+            def publish():
+                for callback in list(_listeners):callback()
+                return False
+            GLib.idle_add(publish)
         def opener(request, timeout):
             from orbits.offline import enabled, OfflineError
             if enabled():

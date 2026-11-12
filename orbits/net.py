@@ -33,13 +33,21 @@ def run_preview(func, callback=None, *args):
 
 def _submit(pool, func, callback, args):
     def done(fut):
-        if callback is None or fut.cancelled():
+        if fut.cancelled():
             return
         err = fut.exception()
+        from orbits.rejections import ScanRejected
+        if callback is None and not isinstance(err,ScanRejected):return
         res = None if err else fut.result()
-        GLib.idle_add(lambda: (callback(res, err), False)[1])
+        def deliver():
+            from orbits.rejections import notify
+            notify(err)
+            if callback is not None:callback(res,err)
+            return False
+        GLib.idle_add(deliver)
 
-    fut = pool.submit(func, *args)
+    from orbits.rejections import guarded
+    fut = pool.submit(guarded(func), *args)
     fut.add_done_callback(done)
     return fut
 
@@ -80,6 +88,9 @@ def get_bytes(url, timeout=60, limit=32 * 1024**2):
 
 def download(url, dest, progress=None, chunk=1 << 16, checksum="", algorithm="md5", *, allow_local=False):
     """Queue a transfer and wait in the caller's worker; retained partials resume on retry."""
+    from orbits.rejections import register_download,register_created_file
+    new_destination=not Path(dest).exists() and not Path(dest).is_symlink()
+    register_download(url,dest,checksum,algorithm)
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme == 'file':
         if not allow_local:
@@ -114,10 +125,13 @@ def download(url, dest, progress=None, chunk=1 << 16, checksum="", algorithm="md
                 os.replace(temporary, destination)
             finally:
                 temporary.unlink(missing_ok=True)
+        if new_destination:register_created_file(dest)
         return 'application/octet-stream', url
     from orbits.downloads import get_manager
     manager = get_manager()
-    return manager.wait(manager.submit(url, dest, progress, checksum, algorithm))
+    result=manager.wait(manager.submit(url, dest, progress, checksum, algorithm))
+    if new_destination:register_created_file(dest)
+    return result
 
 
 def cached_texture(url, size=640):
@@ -139,6 +153,7 @@ def cached_texture(url, size=640):
             temporary.unlink(missing_ok=True)
     if path.stat().st_size > 32 * 1024**2:
         raise RuntimeError('Cached preview exceeds the 32 MiB limit')
-    with tempfile.TemporaryDirectory(prefix='orbits-preview-') as temporary:
+    from orbits.rejections import reject_cleanup
+    with reject_cleanup([path],source=url,label=Path(urllib.parse.urlsplit(url).path).name or 'Preview'), tempfile.TemporaryDirectory(prefix='orbits-preview-') as temporary:
         image = normalize_images(path, temporary, size=size)[0]
         return Gdk.Texture.new_from_bytes(GLib.Bytes.new(image.read_bytes()))

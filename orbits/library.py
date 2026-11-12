@@ -18,6 +18,7 @@ from xml.sax.saxutils import escape
 
 from gi.repository import Gio, GLib, GObject
 
+from orbits.rejections import guarded
 from orbits import net
 from orbits.config import BG_PROPERTIES_DIR, DATA_DIR, download_dir, settings
 from orbits.sources.base import Download, Item
@@ -307,6 +308,7 @@ class Library(GObject.Object):
 
         net.run_async(work, done)
 
+    @guarded
     def _install_blocking(self, item: Item, download: Download, report):
         # App workers and the timer must not replace the same download directory together.
         with (DATA_DIR / "wallpaper-downloads.lock").open("a") as lock:

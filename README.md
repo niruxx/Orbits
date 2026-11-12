@@ -408,7 +408,11 @@ not uploaded to a third-party scanning service.
 
 When enabled, a missing scanner, scanner error, timeout, detection, encrypted
 content or exceeded scanner limits blocks installation. The Downloads page shows
-scan results. Cached downloads are scanned again on reuse. Scans may take up to
+scan results. Detections also show a persistent alert with the scanner reason.
+Orbits deletes its rejected payload, partial download, cache metadata and temporary
+working copies before reporting the rejection. Cleanup failures list paths that
+need manual removal. User-selected originals and existing installations are kept.
+Cached downloads are scanned again on reuse. Scans may take up to
 three minutes; cancellation prevents delivery but a running scan finishes or times
 out in the background. “No known malware detected” is not a guarantee of safety.
 

@@ -186,3 +186,32 @@ msgstr "Apariencia integrada. Los temas instalados siguen disponibles."
 
 msgid "Restores rEFInd’s built-in appearance by disabling custom theme includes and appearance overrides. Boot entries and installed themes are kept."
 msgstr "Restaura la apariencia integrada de rEFInd desactivando las inclusiones de temas personalizados y las modificaciones de apariencia. Se conservan las entradas de arranque y los temas instalados."
+
+#: orbits/application.py
+msgid "Downloaded asset"
+msgstr "Archivo descargado"
+
+#: orbits/application.py
+#, python-brace-format
+msgid "File: {name}"
+msgstr "Archivo: {name}"
+
+#: orbits/application.py
+msgid "Some files could not be deleted. Remove the listed paths manually."
+msgstr "No se pudieron eliminar algunos archivos. Elimine manualmente las rutas indicadas."
+
+#: orbits/application.py
+msgid "Orbits’ copies of the rejected download and its cache files were deleted."
+msgstr "Se eliminaron las copias de Orbits de la descarga rechazada y sus archivos de caché."
+
+#: orbits/application.py
+msgid "Processing stopped. The original file was not deleted."
+msgstr "El procesamiento se detuvo. No se eliminó el archivo original."
+
+#: orbits/application.py
+msgid "Your original local file was kept. Remove it manually if needed."
+msgstr "Se conservó su archivo local original. Elimínelo manualmente si es necesario."
+
+#: orbits/application.py
+msgid "Blocked by Malware Protection"
+msgstr "Bloqueado por la protección contra malware"

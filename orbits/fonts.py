@@ -276,20 +276,22 @@ def preview_font_file(item: FontItem):
     if not path.exists():
         data = net.get_bytes(item.preview_url, timeout=20)
         path.write_bytes(data)
-    from orbits.security import checked_local_file
-    with checked_local_file(path) as captured:
-        with tempfile.NamedTemporaryFile(dir=PREVIEW_DIR, delete=False) as output:
-            temporary = Path(output.name)
+    from orbits.rejections import reject_cleanup
+    with reject_cleanup([path],source=item.preview_url,label=item.family):
+        from orbits.security import checked_local_file
+        with checked_local_file(path) as captured:
+            with tempfile.NamedTemporaryFile(dir=PREVIEW_DIR, delete=False) as output:
+                temporary = Path(output.name)
+                try:
+                    with captured.open('rb') as incoming:
+                        shutil.copyfileobj(incoming, output)
+                except Exception:
+                    temporary.unlink(missing_ok=True)
+                    raise
             try:
-                with captured.open('rb') as incoming:
-                    shutil.copyfileobj(incoming, output)
-            except Exception:
+                os.replace(temporary, path)
+            finally:
                 temporary.unlink(missing_ok=True)
-                raise
-        try:
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
     return path
 
 
@@ -398,6 +400,7 @@ class FontLibrary(GObject.Object):
                     raise ValueError('No fonts found in download')
                 for path in candidates:
                     validate_font(path)
+                family_names=families_in(candidates) or [item.family]
                 USER_FONT_DIR.mkdir(parents=True, exist_ok=True)
                 with tempfile.TemporaryDirectory(prefix='.orbits-font-', dir=USER_FONT_DIR) as temporary:
                     tree = Path(temporary)/'ready'
@@ -410,7 +413,7 @@ class FontLibrary(GObject.Object):
             record_tree(dest)
             files = [str(f) for f in sorted(dest.iterdir()) if f.suffix.lower() in FONT_EXTS]
             return {"key": item.key, "source": item.source, "id": item.id, "family": item.family,
-                    "families": families_in(files) or [item.family], "slug": slug, "dir": str(dest),
+                    "families": family_names, "slug": slug, "dir": str(dest),
                     "files": files, "scope": "user", "license": item.license, "page_url": item.page_url,
                     "category": item.category, "installed_at": time.time(),
                     "remote_changed": item.extra.get("modified", "")}

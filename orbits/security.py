@@ -6,6 +6,8 @@ import warnings
 import threading
 import time
 
+from orbits.rejections import ScanRejected, scanner_alert, discard_cached_source
+
 MAX_DOWNLOAD = 512 * 1024 * 1024
 
 
@@ -77,18 +79,23 @@ def scan_download(path, database=None, *, recursive=False):
     if not scanner:
         raise RuntimeError("Malware scan unavailable: install ClamAV and update its signatures with freshclam")
     try:
-        result = subprocess.run([
-            scanner, *(["--recursive", "--follow-dir-symlinks=0", "--follow-file-symlinks=0"] if recursive else []), *(["--database=" + str(Path(database).resolve())] if database else []), "--no-summary", "--infected", "--alert-encrypted=yes",
-            "--alert-exceeds-max=yes", "--max-filesize=512M", "--max-scansize=1024M",
-            "--max-files=10000", "--max-recursion=32", "--", str(Path(path).resolve())],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180,
-            check=False)
+        with tempfile.TemporaryFile() as report:
+            result = subprocess.run([
+                scanner, *(["--recursive", "--follow-dir-symlinks=0", "--follow-file-symlinks=0"] if recursive else []), *(["--database=" + str(Path(database).resolve())] if database else []), "--no-summary", "--infected", "--alert-encrypted=yes",
+                "--alert-exceeds-max=yes", "--max-filesize=512M", "--max-scansize=1024M",
+                "--max-files=10000", "--max-recursion=32", "--", str(Path(path).resolve())],
+                stdout=report, stderr=subprocess.DEVNULL, timeout=180,
+                check=False)
+            report.seek(0)
+            scanner_output=report.read(8192).decode(errors="replace")
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("Malware scan timed out; download was not installed") from error
     except OSError as error:
         raise RuntimeError("Malware scanner could not start; download was not installed") from error
     if result.returncode == 1:
-        raise RuntimeError("Malware scanner flagged this download (malware, encrypted content or scan limits); installation blocked")
+        import re
+        findings=re.findall(r": ([^\r\n]+) FOUND",scanner_output)
+        raise scanner_alert(findings[0] if findings else "ClamAV alert")
     if result.returncode != 0:
         raise RuntimeError("Malware scan failed; check ClamAV signatures and configuration. Download was not installed")
     return "No known malware detected"
@@ -151,7 +158,11 @@ def checked_local_file(source, *, scan=True, archive=True, publisher=False):
             from orbits.publishers import verify_local
             verify_local(target, source)
         if scan:
-            configured_scan(target)
+            try:configured_scan(target)
+            except ScanRejected as error:
+                if not error.label:error.label=source.name
+                discard_cached_source(source,error)
+                raise
         if archive:
             inspect_archive(target)
         yield target

@@ -119,7 +119,8 @@ class Scanner:
             if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
                 raise RuntimeError('Asset changed during malware scanning; installation blocked')
             if result.endswith(b' FOUND'):
-                raise RuntimeError('Malware scanner flagged this download (malware, encrypted content or scan limits); installation blocked')
+                from orbits.rejections import scanner_alert
+                raise scanner_alert(result.decode(errors='replace').removeprefix('stream: ')[:-6])
             if result != b'stream: OK':
                 raise RuntimeError('Malware scanner rejected this asset or returned an error; installation blocked')
 

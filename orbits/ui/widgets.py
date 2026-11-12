@@ -75,11 +75,14 @@ def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, s
         def done(tex, err):
             if picture._texture_request is not request:
                 return
+            if err:
+                picture.set_tooltip_text(str(err))
             state["pending"] -= 1
             if spinner and quality == 1:
                 spinner.set_visible(False)
             if tex is not None and quality > state["quality"]:
                 state["quality"] = quality
+                picture.set_tooltip_text(None)
                 picture.remove_css_class("load-failed")
                 picture.set_paintable(tex)
             elif not state["pending"] and state["quality"] < 0:

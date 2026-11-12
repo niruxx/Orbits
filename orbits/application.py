@@ -176,6 +176,48 @@ class OrbitsApplication(Adw.Application):
             notification.set_body(message)
             self.send_notification('operation-result', notification)
 
+    def notify_scan_rejection(self, error):
+        """Keep scanner reasons visible, grouping simultaneous thumbnail rejections."""
+        label=''.join(character for character in str(error.label or tr('Downloaded asset')) if character.isprintable())[:200]
+        message=tr('File: {name}').format(name=label)+'\n'+str(error)
+        if error.cleanup_errors:
+            message+='\n'+tr('Some files could not be deleted. Remove the listed paths manually.')
+        elif error.cleanup_attempted:
+            message+='\n'+tr('Orbits’ copies of the rejected download and its cache files were deleted.')
+        else:
+            message+='\n'+tr('Processing stopped. The original file was not deleted.')
+        if error.source.startswith('file:'):
+            message+='\n'+tr('Your original local file was kept. Remove it manually if needed.')
+        title=tr('Blocked by Malware Protection')
+        if not self.window or not self.window.get_visible():
+            notification=Gio.Notification.new(title)
+            notification.set_body(message)
+            self.send_notification('malware-rejection',notification)
+            return
+        key=(error.source or label,error.reason)
+        seen=getattr(self,'_scan_rejection_seen',[])
+        if key in seen:return
+        self._scan_rejection_seen=(seen+[key])[-100:]
+        messages=(getattr(self,'_scan_rejection_messages',[])+[message])[-10:]
+        self._scan_rejection_messages=messages
+        dialog=getattr(self,'_scan_rejection_dialog',None)
+        if dialog is None:
+            dialog=Adw.AlertDialog(heading=title)
+            dialog.set_body_use_markup(False)
+            dialog.add_response('close',tr('Close'))
+            dialog.set_default_response('close')
+            dialog.set_close_response('close')
+            def closed(*_):
+                self._scan_rejection_dialog=None
+                self._scan_rejection_messages=[]
+                self._scan_rejection_seen=[]
+            dialog.connect('closed',closed)
+            self._scan_rejection_dialog=dialog
+            dialog.set_body('\n\n'.join(messages))
+            dialog.present(self.window)
+        else:
+            dialog.set_body('\n\n'.join(messages))
+
     def _on_about(self, *_):
         about = Adw.AboutDialog(
             application_name=APP_NAME,

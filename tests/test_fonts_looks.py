@@ -413,6 +413,20 @@ class FontLibraryTests(unittest.TestCase):
         self.lib.import_files([str(self.source)],lambda entry,error:result.append((entry,error)))
         self.assertIsNone(result[0][1]);return result[0][0]
 
+    def test_rejected_font_metadata_is_checked_before_install_publication(self):
+        from orbits.rejections import scanner_alert,ScanRejected
+        item=self.fonts.FontItem('fixture','font','Rejected Fixture')
+        def download(_item,destination,_report):shutil.copyfile(self.source,Path(destination)/'fixture.ttf')
+        source=types.SimpleNamespace(download_files=download)
+        result=[]
+        with patch.dict(self.fonts.FONT_SOURCES_BY_ID,{'fixture':source}), \
+             patch.object(self.fonts,'families_in',side_effect=scanner_alert('Fixture.BeforePublish')):
+            self.lib.install(item,lambda entry,error:result.append((entry,error)))
+        self.assertIsNone(result[0][0])
+        self.assertIsInstance(result[0][1],ScanRejected)
+        self.assertFalse((self.fonts.USER_FONT_DIR/'rejected-fixture').exists())
+        self.assertNotIn(item.key,self.lib.items)
+
     def test_local_import_reimport_is_idempotent_and_preserves_metadata(self):
         entry=self.install();self.lib.set_collections(entry['key'],['Work'])
         self.lib.set_enabled(entry['key'],False)
