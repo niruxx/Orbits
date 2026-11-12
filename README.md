@@ -386,7 +386,42 @@ The GTK-independent regression suites can be run with Pillow and FontTools insta
 python3 -m unittest tests.test_fonts_looks tests.test_theme_features tests.test_wallpaper_tools tests.test_wallpaper_state
 ```
 
-### Download security
+### Security and malware prevention
+
+Downloaded appearance assets can contain more than pictures: archives, fonts and themes
+are parsed by software, and some theme packages include executable installers. Orbits
+uses several independent checks to reduce the risk of malicious downloads, unsafe file
+layouts and parser vulnerabilities. The built-in validation and sandbox protections work
+independently of the optional malware scanner.
+
+| Protection | What it does | Benefit |
+|---|---|---|
+| Local malware scanning (optional) | Checks downloads, updates, previews and supported imports with ClamAV before use; scans cached downloads again | Detects known threats without uploading your files to a scanning service |
+| Virus definition updates (optional) | Uses a private, unprivileged database with automatic daily checks or a manual update action | Keeps detection data current without changing the system ClamAV service |
+| Rejection alerts and cleanup | Explains scanner detections and deletes Orbits-owned rejected download/cache/temporary copies; reports deletion failures | Makes blocked operations understandable and removes rejected copies from Orbits' download workflow |
+| Sandboxed parsing and previews | Processes images, archives and font inspection/previews in restricted workers with resource limits | Limits access to your files and network if a parser encounters hostile input, and bounds resource use |
+| Archive prevalidation and bounded extraction | Rejects unsafe paths, links, special files and oversized content; counts actual extracted bytes | Helps prevent archive traversal, writes outside the extraction directory and decompression bombs |
+| Data-only theme installation | Rejects executable assets and script-only installers, including downloaded scripted Plymouth themes | Installs supported theme assets without running a downloaded installation script |
+| Protected HTTPS requests | Checks certificates, public destination addresses and redirects; pins the address used for the connection | Reduces interception and attempts to make a catalogue contact local or private-network services |
+| Publisher verification (optional) | Verifies Minisign signatures against keys you explicitly trust; strict mode requires verified publishers for new installs | Checks that the downloaded bytes were signed by a configured publisher |
+| Installed-file integrity | Records SHA-256 manifests and offers explicit integrity checks | Reveals changes to managed files after their baseline was recorded |
+| Privileged staging checks | Copies and revalidates assets before replacing system files, without running third-party cache parsers as root | Reduces exposure during system-wide installs and keeps the previous installation when staging fails |
+
+**Enable malware protection:** install ClamAV (`clamscan` and `freshclam`), open
+Preferences → General → Downloads, enable **Scan Downloads for Malware**, then use
+**Update Virus Definitions Now** or enable **Automatically Update Virus Definitions**.
+Both switches are off by default. **Malware Protection Status** shows missing tools,
+scanning state and definition information. If scanning is requested but cannot complete,
+Orbits blocks the operation rather than treating the file as clean. Disabling scanning
+leaves the other validation and sandbox checks in place.
+
+These protections reduce risk; they do not certify that a theme or font is harmless.
+ClamAV can miss new threats, publisher signatures establish who signed bytes rather than
+whether they are safe, and local integrity records are not publisher authentication.
+Applying an asset also exposes it to the desktop or bootloader that uses it, outside
+Orbits' worker isolation. Keep those components and virus definitions updated.
+
+#### Malware scanning, rejection and cleanup
 
 Preferences → General → Downloads → **Scan Downloads for Malware** enables local
 ClamAV scanning for all files fetched through the installation download manager,
@@ -415,6 +450,8 @@ need manual removal. User-selected originals and existing installations are kept
 Cached downloads are scanned again on reuse. Scans may take up to
 three minutes; cancellation prevents delivery but a running scan finishes or times
 out in the background. “No known malware detected” is not a guarantee of safety.
+
+#### File validation and isolated previews
 
 Installation downloads are limited to 512 MiB. Recognized ZIP/tar archives are
 checked before delivery: at most 10,000 entries and 1 GiB of declared expanded
@@ -451,7 +488,9 @@ an existing theme or font still invokes those components. Keep their libraries
 and ClamAV signatures updated. Signatures supplied alongside an upload establish
 integrity, not publisher trust or harmlessness.
 
-Remote catalogue, preview and installation requests now require HTTPS, validate
+#### Network, archive and system-install protections
+
+Remote catalogue, preview and installation requests require HTTPS, validate
 all resolved addresses as public, and pin the selected numeric address for the TLS
 connection while retaining hostname/certificate checks. Redirects are limited to
 five and cannot downgrade to HTTP or redirect into local/private networks. Cross
