@@ -24,8 +24,8 @@
 .welcome-next { padding: 10px 34px; font-weight: 800; }
 
 /* ---------- Wallpaper cards ---------- */
-flowbox.wall-grid > flowboxchild { padding: 0; border-radius: 18px; background: none; }
-flowbox.wall-grid > flowboxchild:focus-visible { outline: 3px solid alpha(@accent_color, 0.6); outline-offset: 2px; }
+gridview.wall-grid > child { padding: 0; border-radius: 18px; background: none; }
+gridview.wall-grid > child:focus-visible { outline: 3px solid alpha(@accent_color, 0.6); outline-offset: 2px; }
 .wall-card {
   border-radius: 18px;
   background-color: alpha(@card_fg_color, 0.06);
@@ -105,7 +105,7 @@ flowbox.wall-grid > flowboxchild:focus-visible { outline: 3px solid alpha(@accen
 .apply-bar { padding: 10px 16px; border-top: 1px solid alpha(@borders, 0.5); background-color: @headerbar_bg_color; }
 
 /* ---------- Fonts ---------- */
-flowbox.font-grid > flowboxchild { padding: 0; background: none; border-radius: 18px; }
+gridview.font-grid > child { padding: 0; background: none; border-radius: 18px; }
 .font-card {
   padding: 18px 20px 16px 20px;
   border-radius: 18px;
@@ -151,3 +151,6 @@ flowbox.font-grid > flowboxchild { padding: 0; background: none; border-radius: 
 .color-preview-frame { border-radius: 16px; box-shadow: 0 18px 40px -18px alpha(black, 0.55), 0 0 0 1px alpha(black, 0.12); }
 .preset-dot { min-width: 16px; min-height: 16px; border-radius: 999px; box-shadow: 0 0 0 1px alpha(black, 0.2); }
 .preset-chip { border-radius: 14px; }
+
+/* GridView owns the viewport; spacing belongs to its recycled cells. */
+gridview.wall-grid > child, gridview.font-grid > child { padding: 8px; }

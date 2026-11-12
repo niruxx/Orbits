@@ -6,7 +6,8 @@ from pathlib import Path
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from orbits import looks, net
-from orbits.ui.widgets import CoverPicture, local_thumbnail
+from orbits.ui.widgets import CoverPicture, load_texture_into
+from orbits.ui.item_grid import ItemGrid
 
 
 def _when(ts):
@@ -27,7 +28,7 @@ class LookCard(Gtk.Box):
         hero.set_child(pic)
         wp = look.get("screenshot") or looks.preview_path(look)
         if wp and Path(wp).is_file():
-            net.run_async(local_thumbnail, lambda tex, err: tex and pic.set_paintable(tex), wp, 600)
+            load_texture_into(pic, path=wp, size=600)
         dots = Gtk.Box(spacing=4, halign=Gtk.Align.END, valign=Gtk.Align.END, margin_end=10, margin_bottom=10)
         ac = look.get("app_colors")
         variant = ac and (ac["palette"].get("dark") or ac["palette"].get("light"))
@@ -94,11 +95,8 @@ class LooksPage(Adw.Bin):
         schedule=Gtk.Button(icon_name="alarm-symbolic",tooltip_text=tr("Schedule Looks"))
         schedule.connect("clicked",lambda *_:self.schedule());header.pack_start(schedule)
 
-        self.grid = Gtk.FlowBox(homogeneous=True, selection_mode=Gtk.SelectionMode.NONE, min_children_per_line=1,
-                                max_children_per_line=5, column_spacing=16, row_spacing=16, valign=Gtk.Align.START,
-                                css_classes=["font-grid"])
-        self.grid.set_activate_on_single_click(False)
-        self.grid.connect('child-activated', lambda _grid, child:self.apply(child.get_child().look))
+        self.grid = ItemGrid(lambda look: LookCard(self, look), self.apply, max_columns=5,
+                             css_class='font-grid', single_click=False)
         self.empty = Adw.StatusPage(icon_name="preferences-desktop-appearance-symbolic", title=tr("No Looks Yet"),
                                     description=tr("Save your current wallpaper, themes, fonts and colors as a Look, "
                                                 "then switch between setups — or share them as a file."))
@@ -108,12 +106,14 @@ class LooksPage(Adw.Bin):
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24, margin_start=24, margin_end=24,
                        margin_top=12, margin_bottom=32)
         body.append(self.empty)
-        body.append(self.grid)
-        body.append(self.history)
         view = Adw.ToolbarView()
         view.add_top_bar(header)
+        view.add_top_bar(body)
+        view.add_bottom_bar(Gtk.ScrolledWindow(child=self.history,
+                            hscrollbar_policy=Gtk.PolicyType.NEVER,
+                            max_content_height=200, propagate_natural_height=True))
         view.set_content(Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True,
-                                            child=Adw.Clamp(maximum_size=1800, child=body)))
+                                            child=self.grid))
         self.set_child(view)
         self.store.connect("changed", lambda *_: self.reload())
         self.reload()
@@ -121,8 +121,7 @@ class LooksPage(Adw.Bin):
     def reload(self):
         self.grid.remove_all()
         items = self.store.looks()
-        for lk in items:
-            self.grid.append(LookCard(self, lk))
+        self.grid.set_items(items)
         self.empty.set_visible(not items)
         self.grid.set_visible(bool(items))
         for r in self._history_rows:

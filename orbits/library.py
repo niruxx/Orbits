@@ -277,7 +277,8 @@ class Library(GObject.Object):
     # ---- install ------------------------------------------------------
     def install(self, item: Item, download: Download | None, callback, progress=None):
         """Download & register item in a worker. callback(entry, error) on main loop."""
-        download = download or (item.downloads[0] if item.downloads else None)
+        from orbits.download_choice import select_download
+        download = select_download(item, download)
         if download is None:
             callback(None, RuntimeError("This item has nothing to download"))
             return

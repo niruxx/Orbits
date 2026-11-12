@@ -4,7 +4,7 @@ from orbits import net
 from orbits.font_safety import render_font
 
 
-def load(picture, path, text, size, variations=None, features=None):
+def load(picture, path, text, size, variations=None, features=None, face=0):
     generation = getattr(picture, '_font_generation', 0) + 1
     picture._font_generation = generation
     def done(data, error):
@@ -18,6 +18,6 @@ def load(picture, path, text, size, variations=None, features=None):
             picture.set_tooltip_text(None)
     def start():
         if picture._font_generation == generation:
-            net.run_async(lambda: render_font(path, text[:2048], size, variations=variations, features=features), done)
+            net.run_async(lambda: render_font(path, text[:2048], size, face=face, variations=variations, features=features), done)
         return False
     GLib.timeout_add(150, start)

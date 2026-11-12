@@ -53,7 +53,10 @@ def inspect_font(path, face=0):
         values = [axis.get(key) for key in ('min', 'default', 'max')]
         if any(type(n) not in (int, float) or not math.isfinite(n) for n in values) or not values[0] <= values[1] <= values[2]:
             raise ValueError('Invalid font axis limits')
-    result.update(file=str(Path(path)), face=face, monospace=bool(result.get('monospace')))
+    count = result.get('face_count', 1)
+    if type(count) is not int or not 1 <= count <= 256 or face >= count:
+        raise ValueError('Invalid font face count')
+    result.update(file=str(Path(path)), face=face, face_count=count, monospace=bool(result.get('monospace')))
     return result
 
 

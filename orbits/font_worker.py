@@ -4,6 +4,7 @@ import math
 import json
 import sys
 import resource
+import struct
 MAX_FONT = 128 << 20
 
 def font_class():
@@ -14,10 +15,31 @@ def font_class():
     return TTFont
 
 
+def face_count(path):
+    """Read the bounded collection directory inside the isolated worker."""
+    path = Path(path)
+    size = path.stat().st_size
+    if size > MAX_FONT:
+        raise ValueError("Font file exceeds 128 MiB")
+    with path.open('rb') as stream:
+        header = stream.read(12)
+    if header[:4] != b'ttcf':
+        return 1
+    if len(header) != 12:
+        raise ValueError("Invalid font collection header")
+    version, count = struct.unpack('>II', header[4:])
+    if version not in (0x10000, 0x20000) or not 1 <= count <= 256 or 12 + 4 * count > size:
+        raise ValueError("Invalid font collection directory")
+    return count
+
+
 def inspect_font(path, face=0):
     path = Path(path)
     if path.stat().st_size > MAX_FONT:
         raise ValueError("Font file exceeds 128 MiB")
+    count = face_count(path)
+    if type(face) is not int or not 0 <= face < count:
+        raise ValueError("Invalid font face")
     TTFont = font_class()
     try:
         with path.open("rb") as stream, TTFont(stream, fontNumber=face, lazy=True) as font:
@@ -43,7 +65,7 @@ def inspect_font(path, face=0):
             return {"family":family[:200],"style":name(17) or name(2),"full_name":name(4),
                     "version":name(5),"designer":name(9),"license":name(13),"license_url":name(14),
                     "glyph_count":len(font.getGlyphOrder()),"codepoints":sorted(c for c in cmap if 0 <= c <= 0x10ffff),
-                    "features":sorted(features),"axes":axes,"file":str(path),"face":face,
+                    "features":sorted(features),"axes":axes,"file":str(path),"face":face,"face_count":count,
                     "monospace":bool(getattr(font.get("post"), "isFixedPitch", 0))}
     except Exception as error:
         raise ValueError(f"Could not read font {path.name}: {error}") from error

@@ -9,6 +9,8 @@ from orbits.ui.font_preview import load as load_font_preview
 from orbits.ui.font_actions import apply_menu_button, font_attrs
 from orbits.ui.widgets import open_uri, status_page
 
+from orbits.ui.item_grid import ItemGrid
+
 SAMPLES = {
     "monospace": "fn main() { println!(\"0O 1lI {}\"); }",
     "handwriting": "Dear friend, wish you were here",
@@ -59,13 +61,15 @@ class FontCard(Gtk.Box):
             return
 
         def done(path, err):
+            if getattr(self, "_grid_released", False):
+                return
             if path:
                 load_font_preview(self.big, path, 'Aa', 30)
                 load_font_preview(self.sample, path, SAMPLES.get(self.item.category, DEFAULT_SAMPLE), 13)
             elif err:
                 self.big.set_tooltip_text(str(err))
 
-        net.run_async(preview_font_file, done, self.item)
+        net.run_async(lambda: None if getattr(self, "_grid_released", False) else preview_font_file(self.item), done)
 
     def update(self, lib):
         key = self.item.key
@@ -87,7 +91,7 @@ class FontBrowsePage(Adw.Bin):
         self.query, self.page, self.has_more, self.loading, self.generation = "", 1, True, False, 0
         self.sort = source.sorts[0][0] if source.sorts else ""
         self.category = source.categories[0][0] if source.categories else ""
-        self.cards = {}
+        self.items = {}
         self._loaded_once = False
 
         header = Adw.HeaderBar(title_widget=Adw.WindowTitle(title=source.name, subtitle=source.tagline))
@@ -117,18 +121,11 @@ class FontBrowsePage(Adw.Bin):
             b.connect("toggled", lambda btn, c=cid: btn.get_active() and self._set_category(c))
             chips.append(b)
 
-        self.grid = Gtk.FlowBox(homogeneous=True, selection_mode=Gtk.SelectionMode.NONE, min_children_per_line=1,
-                                max_children_per_line=6, column_spacing=16, row_spacing=16, valign=Gtk.Align.START,
-                                margin_start=24, margin_end=24, margin_top=12, margin_bottom=32,
-                                css_classes=["font-grid"])
-        self.grid.set_activate_on_single_click(False)
-        self.grid.connect('child-activated', lambda _grid, child:self.open_detail(child.get_child().item))
+        self.grid = ItemGrid(self._make_card, self.open_detail, max_columns=6,
+                             css_class='font-grid', single_click=False)
         self.more = Adw.Spinner(height_request=32, margin_bottom=24, visible=False)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        body.append(self.grid)
-        body.append(self.more)
         self.scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True,
-                                           child=Adw.Clamp(maximum_size=1800, child=body))
+                                           child=self.grid)
         self.scroller.connect("edge-reached", lambda _s, pos: pos == Gtk.PositionType.BOTTOM and self._load())
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
@@ -148,9 +145,15 @@ class FontBrowsePage(Adw.Bin):
         if source.categories:
             view.add_top_bar(Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER, child=chips,
                                                 propagate_natural_height=True))
+        view.add_bottom_bar(self.more)
         view.set_content(self.stack)
         self.set_child(view)
-        self.lib.connect("changed", lambda *_: [c.update(self.lib) for c in self.cards.values()])
+        self.lib.connect("changed", lambda *_: self.grid.refresh(lambda card: card.update(self.lib)))
+
+    def _make_card(self, item):
+        card = FontCard(self, item)
+        card.update(self.lib)
+        return card
 
     def on_shown(self):
         if not self._loaded_once:
@@ -163,7 +166,7 @@ class FontBrowsePage(Adw.Bin):
     def reload(self):
         self.generation += 1
         self.page, self.has_more, self.loading = 1, True, False
-        self.cards.clear()
+        self.items.clear()
         self.grid.remove_all()
         self.stack.set_visible_child_name("loading")
         self._load()
@@ -189,11 +192,9 @@ class FontBrowsePage(Adw.Bin):
             self.offline_banner.set_revealed(cached or bool(settings.get("offline", False)))
             items, self.has_more = res
             for it in items:
-                if it.key not in self.cards:
-                    card = FontCard(self, it)
-                    card.update(self.lib)
-                    self.cards[it.key] = card
-                    self.grid.append(card)
+                if it.key not in self.items:
+                    self.items[it.key] = it
+                    self.grid.append(it)
             if self.page == 1:
                 self.stack.set_visible_child_name("grid" if items else "empty")
             self.page += 1
@@ -237,7 +238,7 @@ class FontBrowsePage(Adw.Bin):
             if on_done:
                 on_done(entry, err)
 
-        self.lib.install(item, done, lambda f: (c := self.cards.get(item.key)) and c.update(self.lib))
+        self.lib.install(item, done, lambda f: (c := self.grid.find_card(lambda card: card.item.key == item.key)) and c.update(self.lib))
 
     def open_detail(self, item):
         FontDetailDialog(self, item).present(self.window)
@@ -300,7 +301,7 @@ class FontDetailDialog(Adw.Dialog):
             self._update_text()
             load_font_preview(self.samples[-1][0], path, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !?&@#%(){}', 16)
         if self.item.preview_url:
-            net.run_async(preview_font_file, done, self.item)
+            net.run_async(lambda: None if getattr(self, "_grid_released", False) else preview_font_file(self.item), done)
 
     def _sync(self):
         while (c := self.buttons.get_first_child()):

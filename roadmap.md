@@ -85,8 +85,8 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
   archive import, backups, apply/remove/reset, and GRUB menu regeneration in the helper.
 - [x] **More theme types:** sound themes, GTK2 and GTK1 themes with separate legacy rc files,
   plus terminal scheme import/export (Konsole, Ptyxis, Kitty, Alacritty, iTerm and terminal.sexy JSON).
-- [ ] **Themes that ship only an `install.sh`:** build them in a sandbox (bubblewrap, no network,
-  writable output folder only).
+- [x] **Themes that ship only an `install.sh`:** explicitly skip them with an explanation.
+  Orbits does not execute downloaded install scripts; only ready-to-use theme assets are supported.
 - [x] **Store details in the app:** OCS ratings, version/changelog and paginated comments with
   replies, loaded asynchronously in the detail dialog with separate error/retry states.
 - [x] **A boot splash preview** using Plymouth's X11 renderer, before rebuilding the initramfs.
@@ -129,6 +129,10 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
 
 - [x] **Remaining security boundaries:** isolate archive parsing and font inspection/
   rendering; require raster font previews; block downloaded scripted Plymouth themes.
+- [x] **Preview decoder enforcement:** small installed-theme thumbnails, raster icon samples
+  and GDM logos use the protected image loader. Icon sample discovery is bounded and skips
+  links; SVG-only icon themes show a placeholder. Clearing/changing logos invalidates pending
+  preview callbacks. Live namespace isolation still needs verification on a supported host.
 - [x] **Publisher authentication:** explicit hostname/key pins with Minisign, per-use
   verification and optional strict signature enforcement. Community sources remain
   unverified unless publishers provide signatures and users configure trusted keys.
@@ -206,7 +210,9 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
 - Looks preserve and bundle GNOME XML slideshow frames. Screenshot portal behavior, font-manager
   dialogs and scheduled application still need verification in a real GNOME desktop session.
 - Font enable/disable and fontconfig preferences are per-user. Already-running applications may
-  need restarting. Font collection (`.ttc`/`.otc`) inspection currently shows the first face.
+  need restarting. Font collection (`.ttc`/`.otc`) details can select each face for metadata,
+  glyphs, axes and raster previews; the selector still needs live GTK verification. Local-import
+  family summaries currently use the first face.
 
 - New theme types, OCS response normalization, health checks and preview command isolation have
   regression tests. Actual Plymouth X11 rendering and GTK UI behavior still need desktop testing.
@@ -216,7 +222,9 @@ monitors (HydraPaper), generated palettes (pywal/matugen) and font management (F
   been tested against temporary copies, not end-to-end on a real system.
 - update-alternatives support (Ubuntu) and SELinux relabeling (Fedora) have only been tested in
   simulation; they need real installs.
-- Large grids use `Gtk.FlowBox`; switch to `GridView` so memory stays flat while scrolling.
-- `gdm_page.py` and `themes_page.py` are large and should be split up.
-- Store items with several downloads install the last archive by default; remember the user's
-  choice per item.
+- Large wallpaper, font-store, installed-theme and Looks grids use `Gtk.GridView` with data models
+  and release previews when cards leave the bound set. Small fixed/paginated grids retain
+  `Gtk.FlowBox`. Live scrolling, keyboard navigation and memory profiling need desktop verification.
+- GDM tab/control builders and theme cards/actions live in separate UI modules.
+- Store download choices are remembered per item by filename; changed download URLs use the
+  current catalogue. If a chosen file disappears, installation uses the normal default.

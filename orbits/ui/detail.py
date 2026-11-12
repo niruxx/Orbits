@@ -58,7 +58,7 @@ class DetailDialog(Adw.Dialog):
             self._store_content(content)
         if len(item.downloads) > 1:
             files = Adw.PreferencesGroup(title=tr("Files"), margin_top=18,
-                                         description=tr("This item offers several downloads; install the one you want."))
+                                         description=tr("This item offers several downloads; install the one you want. Your choice is remembered for this item."))
             for d in item.downloads:
                 row = Adw.ActionRow(title=d.name, subtitle=human_size(d.size) if d.size else "", use_markup=False)
                 b = Gtk.Button(icon_name="folder-download-symbolic", valign=Gtk.Align.CENTER,

@@ -67,6 +67,32 @@ class PreviewLoadingTests(unittest.TestCase):
         self.finish(0, 'old thumbnail')
         self.picture.set_paintable.assert_called_once_with('new image')
 
+    def test_released_card_does_not_decode_queued_preview(self):
+        self.load()
+        self.picture._texture_request = None
+        self.assertIsNone(self.jobs[0][0]())
+        self.finish(0, 'stale thumbnail')
+        self.finish(1, 'stale preview')
+        self.picture.set_paintable.assert_not_called()
+
+    def test_clearing_optional_logo_discards_pending_decode(self):
+        self.widgets.load_optional_texture_into(self.picture, '/logo.png', size=256)
+        self.picture.set_paintable.reset_mock()
+        self.widgets.load_optional_texture_into(self.picture, None, size=256)
+        self.finish(0, 'old logo')
+        self.picture.set_paintable.assert_called_once_with(None)
+        self.assertIsNone(self.jobs[0][0]())
+
+    def test_changing_optional_logo_uses_only_latest_image(self):
+        self.widgets.load_optional_texture_into(self.picture, '/first.png')
+        self.widgets.load_optional_texture_into(self.picture, '/second.png')
+        self.picture.set_paintable.reset_mock()
+        self.finish(1, 'new logo')
+        self.finish(0, 'old logo')
+        self.picture.set_paintable.assert_called_once_with('new logo')
+        self.widgets.load_optional_texture_into(self.picture, '/second.png')
+        self.assertEqual(len(self.jobs), 2)
+
     def test_both_failures_mark_image_failed(self):
         self.load()
         self.finish(0, None)

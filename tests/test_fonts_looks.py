@@ -79,6 +79,29 @@ class FontToolsTests(unittest.TestCase):
         self.assertIn('liga',metadata['features'])
         self.assertEqual(metadata['license'],'Fixture test license')
 
+    def test_collection_second_face_supplies_its_own_metadata_and_preview(self):
+        from fontTools.ttLib import TTCollection, TTFont
+        from orbits.font_safety import render_font
+        second_path=make_font(self.root/'second.ttf')
+        collection_path=self.root/'two-faces.ttc'
+        with TTFont(self.font) as first, TTFont(second_path) as second:
+            for name_id in (1, 4, 16):
+                second['name'].setName('Second Collection Family', name_id, 3, 1, 0x409)
+            for subtable in second['cmap'].tables:
+                if subtable.isUnicode():subtable.cmap={66:'B'}
+            collection=TTCollection()
+            collection.fonts=[first, second]
+            collection.save(collection_path)
+        first=font_tools.inspect_font(collection_path)
+        second=font_tools.inspect_font(collection_path, 1)
+        self.assertEqual(first['face_count'], 2)
+        self.assertEqual(first['family'], 'Orbits Fixture')
+        self.assertEqual(second['family'], 'Second Collection Family')
+        self.assertEqual(second['codepoints'], [66])
+        self.assertEqual(second['face'], 1)
+        self.assertTrue(render_font(collection_path, 'B', 24, face=1).startswith(b'\x89PNG'))
+        with self.assertRaises(ValueError):font_tools.inspect_font(collection_path, 2)
+
     def test_variable_axes_preserve_real_limits_and_default(self):
         metadata=font_tools.inspect_font(make_font(self.root/'variable.ttf',True))
         self.assertEqual(metadata['axes'],[{'tag':'wght','name':'Weight','min':100,'default':400,'max':900}])

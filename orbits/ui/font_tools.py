@@ -33,13 +33,18 @@ class FontInspector(Adw.Dialog):
         self.window,self.entry=window,entry
         self.metadata=None
         self.generation=0
+        self._syncing_faces=False
         self.closed=False
         self.connect("closed",lambda *_:setattr(self,"closed",True))
         body=body_box()
         self.files=entry["files"]
         self.file_choice=Gtk.DropDown.new_from_strings([Path(file).name for file in self.files])
-        self.file_choice.connect("notify::selected",lambda *_:self.load())
+        self.file_choice.connect("notify::selected",self._file_changed)
         body.append(self.file_choice)
+        self.face_choice=Adw.ComboRow(title=tr("Font Face"), visible=False,
+                                     model=Gtk.StringList.new([tr("Face {number}").format(number=1)]))
+        self.face_choice.connect("notify::selected",self._face_changed)
+        body.append(self.face_choice)
         self.sample_text=Gtk.Entry(text="The quick brown fox jumps over the lazy dog. 0123456789")
         self.sample_text.connect("changed",lambda *_:self.preview())
         body.append(self.sample_text)
@@ -85,15 +90,40 @@ class FontInspector(Adw.Dialog):
         shell(self,body)
         self.load()
 
-    def load(self):
+    def _set_faces(self, count, selected):
+        self._syncing_faces=True
+        try:
+            self.face_choice.set_model(Gtk.StringList.new([
+                tr("Face {number}").format(number=index+1) for index in range(count)]))
+            self.face_choice.set_selected(selected)
+            self.face_choice.set_visible(count > 1)
+        finally:
+            self._syncing_faces=False
+
+    def _file_changed(self, *_):
+        self._set_faces(1, 0)
+        self.load()
+
+    def _face_changed(self, row, _param):
+        if not self._syncing_faces:
+            self.load(row.get_selected())
+
+    def load(self, face=0):
         if not self.files:return
+        position=self.file_choice.get_selected()
+        if not 0 <= position < len(self.files):return
         self.generation+=1
         generation=self.generation
-        path=self.files[self.file_choice.get_selected()]
+        path=self.files[position]
+        self.metadata=None
+        self.sample._font_generation=getattr(self.sample, '_font_generation', 0)+1
+        self.sample.set_paintable(None)
+        self.info.set_label(tr("Reading font tables…"))
         def done(metadata,error):
             if self.closed or generation!=self.generation:return
             if error:
                 self.info.set_label(str(error));return
+            self._set_faces(metadata["face_count"], face)
             self.metadata=metadata
             self.preview_path = path
             self.info.set_label(" · ".join(filter(None,[metadata["full_name"],metadata["style"],metadata["version"],
@@ -116,7 +146,7 @@ class FontInspector(Adw.Dialog):
                 self.feature_group.add(row);self.feature_rows.append(row)
             self.feature_group.set_visible(bool(self.features))
             self.preview();self.glyph_page(0)
-        net.run_async(lambda:font_tools.inspect_font(path),done)
+        net.run_async(lambda:font_tools.inspect_font(path, face),done)
 
     def variations(self):
         return ",".join(f"{tag}={row.get_value():g}" for tag,row in self.axes.items())
@@ -125,7 +155,8 @@ class FontInspector(Adw.Dialog):
         if not self.metadata:return
         features = [tag if row.get_selected() == 1 else '-' + tag for tag, row in self.features.items() if row.get_selected()]
         load_font_preview(self.sample, self.preview_path, self.sample_text.get_text(), 24,
-                          variations={tag: row.get_value() for tag, row in self.axes.items()}, features=features)
+                          variations={tag: row.get_value() for tag, row in self.axes.items()}, features=features,
+                          face=self.metadata["face"])
 
     def glyph_page(self,page):
         if not self.metadata:return

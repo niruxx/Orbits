@@ -10,6 +10,7 @@ from orbits.wallpaper_tools import compose_monitors
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Graphene, Gsk, Gtk, Pango
 
+from orbits.ui.widgets import load_optional_texture_into
 from orbits import net
 from orbits.gdm.model import ACCENT_HEX, login_users
 
@@ -114,7 +115,6 @@ class GdmPreview(Gtk.Overlay):
         self.bg_texture = None
         self.bg_texture_path = None
         self.lock_texture = None
-        self.logo_path = None
         self._css = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self._css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_USER)
@@ -220,7 +220,6 @@ class GdmPreview(Gtk.Overlay):
                 if monitors:
                     assignments = [dict(rec, path=rec.get(variant) or path) for rec in monitors]
                     source = str(compose_monitors(assignments, Path(tmp) / "layout.png"))
-                import tempfile
                 from orbits.image_safety import normalize_images
                 with tempfile.TemporaryDirectory(prefix='orbits-gdm-image-') as temporary:
                     normalized = normalize_images(source, temporary, size=2560)[0]
@@ -305,9 +304,7 @@ class GdmPreview(Gtk.Overlay):
         self.battery.set_label("80%" if m.get("show_battery_percentage") else "")
 
         logo = m.get("logo")
-        if logo != self.logo_path:
-            self.logo_path = logo
-            self.logo.set_file(Gio.File.new_for_path(logo) if logo else None)
+        load_optional_texture_into(self.logo, logo, size=512)
 
         # dynamic styling
         text = m.get("text_color") or "#f6f5f4"

@@ -278,9 +278,12 @@ class OrbitsWindow(Adw.ApplicationWindow):
         elif record['kind'] == 'theme':
             page.stack.set_visible_child_name('installed')
             page.reload()
-            for card in page.cards:
-                if card.theme.meta.get('key') == record['key'] or card.theme.name == record.get('theme_name'):
-                    card.get_parent().grab_focus()
+            for position, theme in enumerate(page.installed_items):
+                if theme.meta.get('key') == record['key'] or theme.name == record.get('theme_name'):
+                    if hasattr(page.grid, 'scroll_to'):
+                        page.grid.scroll_to(position, Gtk.ListScrollFlags.FOCUS, None)
+                    else:
+                        page.grid.grab_focus()
                     break
 
     def use_for_login_screen(self, path):

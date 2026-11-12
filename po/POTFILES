@@ -67,3 +67,6 @@ orbits/ui/window.py
 orbits/undo.py
 orbits/updates.py
 orbits/wallpaper_tools.py
+orbits/ui/gdm_controls.py
+orbits/ui/theme_actions.py
+orbits/ui/theme_card.py

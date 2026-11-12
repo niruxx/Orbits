@@ -649,9 +649,8 @@ class ThemeManager(GObject.Object):
 
         callback(entry, err): entry has "names" and, for Plymouth, "staged" (dirs the helper must copy).
         """
-        if download is None:
-            archives = [d for d in item.downloads if re.search(r"\.(zip|tar(\.\w+)?|tgz|txz|tbz2?)$", d.name, re.I)]
-            download = (archives or item.downloads or [None])[-1 if archives else 0]
+        from orbits.download_choice import select_download
+        download = select_download(item, download, prefer_archive=True)
         if download is None:
             callback(None, RuntimeError("This item has nothing to download"))
             return
@@ -724,7 +723,7 @@ class ThemeManager(GObject.Object):
             if not themes:
                 hint = ""
                 if any(unpack.rglob("install.sh")):
-                    hint = " It only ships an install script — open its page for instructions."
+                    hint = " Skipped: this package requires an install.sh script. Orbits does not execute downloaded install scripts; only ready-to-use theme assets are supported."
                 raise RuntimeError(f"No {kind.noun} found in {download.name}.{hint}")
 
             from orbits.asset_validation import validate_theme_tree

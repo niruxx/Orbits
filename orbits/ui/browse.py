@@ -5,8 +5,9 @@ from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 from orbits import net
 from orbits.config import settings
 from orbits.library import get_library
-from orbits.ui.widgets import WallCard, make_grid, status_page, open_uri
+from orbits.ui.widgets import WallCard, status_page, open_uri
 from orbits.theme_sources import web_url
+from orbits.ui.item_grid import ItemGrid
 
 
 class BrowsePage(Adw.Bin):
@@ -28,7 +29,7 @@ class BrowsePage(Adw.Bin):
         self.has_more = True
         self.loading = False
         self.generation = 0
-        self.cards = {}
+        self.items = {}
         self.query = ""
         self.sort = source.sorts[0][0] if source.sorts else ""
         self.category = source.categories[0][0] if source.categories else ""
@@ -78,8 +79,7 @@ class BrowsePage(Adw.Bin):
         chip_scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER, child=chips)
         chip_scroll.set_propagate_natural_height(True)
 
-        self.grid = make_grid()
-        self.grid.connect("child-activated", self._on_activate)
+        self.grid = ItemGrid(self._make_card, self._open_detail)
         if wallpaper_extras:
             self.grid.set_filter_func(self._wallpaper_filter)
             controls = Gtk.Box(spacing=12, margin_start=24, margin_end=24, margin_top=6, margin_bottom=6)
@@ -89,11 +89,8 @@ class BrowsePage(Adw.Bin):
                 button.connect("toggled", lambda *_: self.grid.invalidate_filter())
                 controls.append(button)
         self.more_spinner = Adw.Spinner(height_request=32, margin_bottom=24, visible=False)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        body.append(self.grid)
-        body.append(self.more_spinner)
         self.scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True,
-                                           child=Adw.Clamp(maximum_size=1800, child=body))
+                                           child=self.grid)
         self.scroller.connect("edge-reached", self._on_edge)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
@@ -115,6 +112,7 @@ class BrowsePage(Adw.Bin):
             view.add_top_bar(controls)
         if source.categories:
             view.add_top_bar(chip_scroll)
+        view.add_bottom_bar(self.more_spinner)
         view.set_content(self.stack)
         self.set_child(view)
 
@@ -133,7 +131,7 @@ class BrowsePage(Adw.Bin):
     def reload(self):
         self.generation += 1
         self.page, self.has_more, self.loading = 1, True, False
-        self.cards.clear()
+        self.items.clear()
         self.grid.remove_all()
         self.stack.set_visible_child_name("loading")
         self._load_page()
@@ -162,8 +160,9 @@ class BrowsePage(Adw.Bin):
             self.offline_banner.set_revealed(cached or bool(settings.get("offline", False)))
             items, self.has_more = result
             for item in items:
-                if item.key not in self.cards:
-                    self._add_card(item)
+                if item.key not in self.items:
+                    self.items[item.key] = item
+                    self.grid.append(item)
             if self.page == 1:
                 self.stack.set_visible_child_name("grid" if items else "empty")
             self.page += 1
@@ -183,7 +182,7 @@ class BrowsePage(Adw.Bin):
             self._load_page()
 
     # ---------------------------------------------------------------- cards
-    def _add_card(self, item):
+    def _make_card(self, item):
         sub = item.author or item.stats
         card = WallCard(item.title, sub)
         card.item = item
@@ -191,9 +190,8 @@ class BrowsePage(Adw.Bin):
                                                   lambda: self.install(item))
         card.add_action_button(self.apply_icon, self.apply_label, lambda: self.install(item, apply=True))
         card.load(url=item.thumb_url or item.preview_url)
-        self.cards[item.key] = card
-        self.grid.append(card)
         self._update_card(card)
+        return card
 
     def _update_card(self, card):
         key = card.item.key
@@ -203,8 +201,7 @@ class BrowsePage(Adw.Bin):
         card.install_btn.set_visible(not installed and not busy)
         card.set_progress(self.lib.busy[key] if busy else None)
 
-    def _wallpaper_filter(self, child):
-        item = child.get_child().item
+    def _wallpaper_filter(self, item):
         if self.hide_installed.get_active() and self.lib.is_installed(item.key):
             return False
         if self.fits_screen.get_active():
@@ -220,17 +217,15 @@ class BrowsePage(Adw.Bin):
     def _refresh_badges(self):
         if self.wallpaper_extras:
             self.grid.invalidate_filter()
-        for card in self.cards.values():
-            self._update_card(card)
+        self.grid.refresh(self._update_card)
 
     def install(self, item, download=None, apply=False, on_done=None):
         if self.lib.is_installed(item.key):
             if apply:
                 self._apply(self.lib.items[item.key])
             return
-        card = self.cards.get(item.key)
-
         def progress(frac):
+            card = self.grid.find_card(lambda card: card.item.key == item.key)
             if card:
                 card.set_progress(frac)
 
@@ -259,10 +254,10 @@ class BrowsePage(Adw.Bin):
         self.lib.apply(entry["files"][0], desktop=True, lockscreen=settings.get("apply_lockscreen_too"))
         self.window.toast(tr('Wallpaper set to “{value0}”').format(value0=entry['title']))
 
-    def _on_activate(self, _grid, child):
+    def _open_detail(self, item):
         from orbits.ui.detail import DetailDialog
 
-        DetailDialog(self, child.get_child().item).present(self.window)
+        DetailDialog(self, item).present(self.window)
 
     # ---------------------------------------------------------------- filters
     def _on_sort(self, dd, _p):

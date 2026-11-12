@@ -66,6 +66,8 @@ def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, s
 
     def start(image_url, quality):
         def work():
+            if picture._texture_request is not request:
+                return None
             return net.cached_texture(image_url) if image_url else local_thumbnail(path, size)
 
         def done(tex, err):
@@ -89,6 +91,18 @@ def load_texture_into(picture: Gtk.Picture, url=None, path=None, spinner=None, s
     if fallback_url and fallback_url != url:
         start(fallback_url, 0)
     start(url, 1)
+
+
+def load_optional_texture_into(picture, path, size=640):
+    """Replace or clear a local preview, invalidating any earlier asynchronous load."""
+    if getattr(picture, '_optional_texture_path', object()) == path:
+        return
+    picture._optional_texture_path = path
+    picture._texture_request = None
+    picture.set_paintable(None)
+    picture.remove_css_class('load-failed')
+    if path:
+        load_texture_into(picture, path=path, size=size)
 
 
 class WallCard(Gtk.Overlay):
@@ -151,13 +165,6 @@ class WallCard(Gtk.Overlay):
 
     def load(self, url=None, path=None):
         load_texture_into(self.picture, url=url, path=path, spinner=self.spinner)
-
-
-def make_grid():
-    return Gtk.FlowBox(css_classes=["wall-grid"], homogeneous=True, selection_mode=Gtk.SelectionMode.NONE,
-                       min_children_per_line=1, max_children_per_line=8, column_spacing=18, row_spacing=18,
-                       valign=Gtk.Align.START, activate_on_single_click=True,
-                       margin_start=24, margin_end=24, margin_top=12, margin_bottom=32)
 
 
 def status_page(icon, title, description="", button=None, callback=None):

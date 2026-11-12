@@ -7,7 +7,9 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 from orbits.config import settings
 from orbits.library import IMAGE_EXTS, get_library
 from orbits.sources import BY_ID
-from orbits.ui.widgets import CoverPicture, WallCard, load_texture_into, make_grid, open_uri, status_page
+from orbits.ui.widgets import CoverPicture, WallCard, load_texture_into, open_uri, status_page
+
+from orbits.ui.item_grid import ItemGrid
 
 FILTERS = [("all", "All"), ("favorites", "Favorites")] + [(s.id, s.name) for s in BY_ID.values()] + [("local", "Imported")]
 
@@ -57,11 +59,10 @@ class LibraryPage(Adw.Bin):
             b.connect("toggled", lambda btn, f=fid: btn.get_active() and self._set_filter(f))
             chips.append(b)
 
-        self.grid = make_grid()
-        self.grid.connect("child-activated", self._on_activate)
+        self.grid = ItemGrid(self._make_card, self._open_detail)
         self.grid.set_filter_func(self._filter_func)
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True,
-                                      child=Adw.Clamp(maximum_size=1800, child=self.grid))
+                                      child=self.grid)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(scroller, "grid")
@@ -85,7 +86,6 @@ class LibraryPage(Adw.Bin):
         drop.connect("drop", self._on_drop)
         self.add_controller(drop)
 
-        self.cards = {}
         self.lib.connect("changed", lambda *_: self.rebuild())
         self.rebuild()
 
@@ -113,20 +113,7 @@ class LibraryPage(Adw.Bin):
             self.collection_row.set_model(Gtk.StringList.new(["All Collections"] + collection_names[1:]))
             self.collection_row.set_selected(collection_names.index(current))
         items = self.lib.sorted_items()
-        keys = [i["key"] for i in items]
-        if keys != list(self.cards):
-            self.grid.remove_all()
-            old, self.cards = self.cards, {}
-            for entry in items:
-                card = old.get(entry["key"]) or self._make_card(entry)
-                card.entry = entry
-                self.cards[entry["key"]] = card
-                self.grid.append(card)
-        for card in self.cards.values():
-            card.entry = self.lib.items[card.entry["key"]]
-            current = self.lib.is_current(card.entry)
-            n = len(card.entry["files"])
-            card.set_badge("● Current" if current else ("★ Favorite" if card.entry.get("favorite") else (f"{n} wallpapers" if n > 1 else "")), accent=current)
+        self.grid.set_items(items)
         self.stack.set_visible_child_name("grid" if items else "empty")
         self.grid.invalidate_filter()
 
@@ -139,10 +126,12 @@ class LibraryPage(Adw.Bin):
         card.add_action_button("preferences-desktop-wallpaper-symbolic", tr("Set as Wallpaper"),
                                lambda: self.apply(card.entry, card.entry["files"][0]))
         card.load(path=entry["files"][0].get("preview") or entry["files"][0]["light"])
+        current = self.lib.is_current(entry)
+        n = len(entry["files"])
+        card.set_badge("● Current" if current else ("★ Favorite" if entry.get("favorite") else (f"{n} wallpapers" if n > 1 else "")), accent=current)
         return card
 
-    def _filter_func(self, child):
-        e = child.get_child().entry
+    def _filter_func(self, e):
         if self.filter == "favorites" and not e.get("favorite"):
             return False
         if self.collection and self.collection not in e.get("collections", []):
@@ -251,8 +240,8 @@ class LibraryPage(Adw.Bin):
         self._import_paths([f.get_path() for f in value.get_files() if f.get_path()])
         return True
 
-    def _on_activate(self, _grid, child):
-        LibraryDialog(self, child.get_child().entry).present(self.window)
+    def _open_detail(self, entry):
+        LibraryDialog(self, entry).present(self.window)
 
 
 class LibraryDialog(Adw.Dialog):

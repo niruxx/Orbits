@@ -10,6 +10,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from orbits import look_gallery, look_schedule, net
 from orbits.config import CONFIG_DIR
 from orbits.ui.widgets import CoverPicture, load_texture_into
+from orbits.ui.item_grid import ItemGrid
 
 
 def body_box():
@@ -93,8 +94,13 @@ class LooksGallery(Adw.Dialog):
         body.append(group)
         self.status=Gtk.Label(label=tr("No public catalogue is configured. Open a catalogue shared by another Orbits user."),wrap=True,xalign=0)
         body.append(self.status)
-        self.grid=Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,max_children_per_line=3,column_spacing=16,row_spacing=16,homogeneous=True)
-        body.append(self.grid);shell(self,body)
+        self.grid = ItemGrid(self.card, max_columns=3, css_class='font-grid')
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.add_top_bar(body)
+        view.set_content(Gtk.ScrolledWindow(child=self.grid, vexpand=True,
+                                           hscrollbar_policy=Gtk.PolicyType.NEVER))
+        self.set_child(view)
         if location:self.load()
 
     def choose(self):
@@ -118,7 +124,7 @@ class LooksGallery(Adw.Dialog):
             if error:self.status.set_label(str(error));return
             (CONFIG_DIR/"looks-gallery.json").write_text(json.dumps({"location":location}))
             self.status.set_label(f"{len(records)} Looks available" if records else "This catalogue has no Looks yet")
-            for record in records:self.grid.append(self.card(record))
+            self.grid.set_items(records)
         net.run_async(lambda:look_gallery.load_catalog(location),done)
 
     def card(self,record):

@@ -123,3 +123,13 @@ msgstr "Abrir origen"
 
 msgid "Source"
 msgstr "Origen"
+
+msgid "Font Face"
+msgstr "Variante de la fuente"
+
+#, python-brace-format
+msgid "Face {number}"
+msgstr "Variante {number}"
+
+msgid "No raster preview available"
+msgstr "No hay una vista previa de imagen rasterizada disponible"

@@ -2301,3 +2301,16 @@ msgstr ""
 #: orbits/ui/window.py:162
 msgid "Explore"
 msgstr ""
+
+#: orbits/ui/font_tools.py
+msgid "Font Face"
+msgstr ""
+
+#: orbits/ui/font_tools.py
+#, python-brace-format
+msgid "Face {number}"
+msgstr ""
+
+#: orbits/ui/theme_card.py
+msgid "No raster preview available"
+msgstr ""
